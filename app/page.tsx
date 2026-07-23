@@ -1,6 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  BarChart3,
+  CalendarRange,
+  CheckCircle2,
+  Eye,
+  Layers3,
+  LayoutDashboard,
+  MailCheck,
+  MousePointerClick,
+  MoveUpRight,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  Table2,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 
 const SUPABASE_URL = "https://fidfdgnnoqamhftczcer.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY =
@@ -41,7 +59,7 @@ type RateKey =
 
 type Rates = Record<RateKey, number>;
 type Enriched = Metrics & Rates;
-type Tab = "overview" | "comparison" | "insights";
+type Tab = "overview" | "summary" | "comparison" | "insights";
 
 const EMPTY: Metrics = {
   communications: 0,
@@ -60,17 +78,17 @@ const GROUP_COLORS: Record<string, string> = {
 };
 
 const SEGMENT_COLORS: Record<string, string> = {
-  Consolidadores: "#4361EE",
-  Corporativas: "#00A6A6",
-  OTAs: "#F59E0B",
-  Operators: "#8B5CF6",
-  LC: "#EF4444",
-  GE: "#22C55E",
-  Club: "#EC4899",
-  Aniversário: "#06B6D4",
-  "Aniversário Agências": "#A16207",
-  Pontual: "#64748B",
-  Vendas: "#F97316",
+  Consolidadores: "#1F6FEB",
+  Corporativas: "#00897B",
+  OTAs: "#E6A700",
+  Operators: "#7C3AED",
+  LC: "#D62828",
+  GE: "#2E8B57",
+  Club: "#D63384",
+  Aniversário: "#0096C7",
+  "Aniversário Agências": "#8C5A2B",
+  Pontual: "#596579",
+  Vendas: "#7A8B00",
 };
 
 const GROUP_LABELS: Record<string, string> = {
@@ -155,6 +173,11 @@ function formatMonth(key: string, short = false) {
   return short
     ? `${MONTHS_PT[month - 1].slice(0, 3)}/${String(year).slice(2)}`
     : `${MONTHS_PT[month - 1]}/${year}`;
+}
+
+function monthName(key: string) {
+  const month = Number(key.split("-")[1]);
+  return MONTHS_PT[month - 1]?.toLocaleLowerCase("pt-BR") || key;
 }
 
 function segmentLabel(segment: string) {
@@ -256,28 +279,15 @@ function totalForMonth(rows: RawRow[], month: string) {
 }
 
 function NavIcon({ name }: { name: Tab }) {
-  if (name === "comparison") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 18V9M12 18V5M19 18v-6" />
-      </svg>
-    );
-  }
-  if (name === "insights") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M9 18h6M10 22h4M8.5 14.5A6 6 0 1 1 15.5 14.5c-1 .8-1.5 1.7-1.5 2.5h-4c0-.8-.5-1.7-1.5-2.5Z" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="3" width="7" height="7" rx="2" />
-      <rect x="14" y="3" width="7" height="7" rx="2" />
-      <rect x="3" y="14" width="7" height="7" rx="2" />
-      <rect x="14" y="14" width="7" height="7" rx="2" />
-    </svg>
-  );
+  const Icon =
+    name === "summary"
+      ? Table2
+      : name === "comparison"
+        ? CalendarRange
+        : name === "insights"
+          ? Sparkles
+          : LayoutDashboard;
+  return <Icon aria-hidden="true" />;
 }
 
 function KpiCard({
@@ -505,6 +515,39 @@ function HorizontalCompare({
   );
 }
 
+function SummaryBarChart({
+  data,
+}: {
+  data: ReturnType<typeof segmentRows>;
+}) {
+  const maximum = Math.max(1, ...data.map((item) => item.sent));
+  return (
+    <div
+      className="summary-bar-chart"
+      role="img"
+      aria-label="Emails enviados por classificação no mês selecionado"
+    >
+      {data.map((item) => (
+        <div className="summary-bar-row" key={`${item.group}-${item.label}`}>
+          <div className="summary-bar-label">
+            <i style={{ background: segmentColor(item.label) }} />
+            <span>{item.label}</span>
+          </div>
+          <div className="summary-bar-track">
+            <i
+              style={{
+                width: `${Math.max(1.5, (item.sent / maximum) * 100)}%`,
+                background: segmentColor(item.label),
+              }}
+            />
+          </div>
+          <strong>{formatInt(item.sent)}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function VerticalCompare({
   title,
   subtitle,
@@ -540,7 +583,7 @@ function VerticalCompare({
         <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
       </div>
       <div className="vertical-scroll">
-        <div className="vertical-chart" style={{ minWidth: `${Math.max(760, labels.length * 92)}px` }}>
+        <div className="vertical-chart" style={{ minWidth: `${Math.max(880, labels.length * 116)}px` }}>
           {labels.map((label) => {
             const a = current.find((item) => item.label === label)?.[metric] || 0;
             const b = previous.find((item) => item.label === label)?.[metric] || 0;
@@ -576,8 +619,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("");
+  const [summaryMonth, setSummaryMonth] = useState("");
   const [currentMonth, setCurrentMonth] = useState("");
   const [previousMonth, setPreviousMonth] = useState("");
+  const [comparisonSegment, setComparisonSegment] = useState("ALL");
   const [trendCount, setTrendCount] = useState(6);
 
   useEffect(() => {
@@ -601,6 +646,7 @@ function App() {
         const latest = months.at(-1) || "";
         const prior = months.at(-2) || latest;
         setSelectedMonth(latest);
+        setSummaryMonth(latest);
         setCurrentMonth(latest);
         setPreviousMonth(prior);
       } catch (loadError) {
@@ -618,6 +664,22 @@ function App() {
     () => Array.from(new Set(rows.map((row) => row.month_key))).sort(),
     [rows],
   );
+  const classificationOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(rows.map((row) => segmentLabel(row.operational_segment))),
+      ).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [rows],
+  );
+  const comparisonRows = useMemo(
+    () =>
+      comparisonSegment === "ALL"
+        ? rows
+        : rows.filter(
+            (row) => segmentLabel(row.operational_segment) === comparisonSegment,
+          ),
+    [comparisonSegment, rows],
+  );
   const selectedIndex = months.indexOf(selectedMonth);
   const selectedPrevious =
     selectedIndex > 0 ? months[selectedIndex - 1] : selectedMonth;
@@ -626,12 +688,15 @@ function App() {
   const groups = groupRows(rows, selectedMonth);
   const segments = segmentRows(rows, selectedMonth);
   const trendMonths = months.slice(-trendCount);
-  const compareCurrent = totalForMonth(rows, currentMonth);
-  const comparePrevious = totalForMonth(rows, previousMonth);
-  const compareGroupsCurrent = groupRows(rows, currentMonth);
-  const compareGroupsPrevious = groupRows(rows, previousMonth);
-  const compareSegmentsCurrent = segmentRows(rows, currentMonth);
-  const compareSegmentsPrevious = segmentRows(rows, previousMonth);
+  const summaryTotal = totalForMonth(rows, summaryMonth);
+  const summaryGroups = groupRows(rows, summaryMonth);
+  const summarySegments = segmentRows(rows, summaryMonth);
+  const compareCurrent = totalForMonth(comparisonRows, currentMonth);
+  const comparePrevious = totalForMonth(comparisonRows, previousMonth);
+  const compareGroupsCurrent = groupRows(comparisonRows, currentMonth);
+  const compareGroupsPrevious = groupRows(comparisonRows, previousMonth);
+  const compareSegmentsCurrent = segmentRows(comparisonRows, currentMonth);
+  const compareSegmentsPrevious = segmentRows(comparisonRows, previousMonth);
 
   if (loading) {
     return (
@@ -786,30 +851,51 @@ function App() {
     ["Cliques", "únicos", compareCurrent.clicks, comparePrevious.clicks],
   ] as const;
   const journeyMaximum = Math.max(compareCurrent.sent, comparePrevious.sent, 1);
+  const volumeDelta = compareCurrent.sent - comparePrevious.sent;
   const volumeHeadline =
     compareCurrent.sent > comparePrevious.sent
       ? "Volume ampliado"
       : compareCurrent.sent < comparePrevious.sent
         ? "Volume reduzido"
         : "Volume mantido";
-  const deliveryHeadline =
-    deliveryChange > 0
-      ? "Taxa de entrega avançou"
-      : deliveryChange < 0
-        ? "Taxa de entrega recuou"
-        : "Taxa de entrega mantida";
+  const deliveryPreserved =
+    deliveryChange >= 0 && compareCurrent.bounce <= comparePrevious.bounce;
+  const deliveryHeadline = deliveryPreserved
+    ? "Eficiência preservada"
+    : deliveryChange < 0
+      ? "Entrega em atenção"
+      : "Eficiência de entrega alterada";
   const openingHeadline =
-    openChange > 0
+    Math.abs(openChange) <= 0.1
+      ? "Taxa praticamente estável"
+      : openChange > 0
       ? "Taxa de abertura avançou"
       : openChange < 0
         ? "Taxa de abertura recuou"
         : "Taxa de abertura mantida";
   const clickHeadline =
-    clickChange !== null && clickChange > 0
+    clickChange !== null && clickChange < 0 && ctrChange < 0
+      ? "Eficiência em queda"
+      : clickChange !== null && clickChange > 0
       ? "Cliques avançaram"
       : clickChange !== null && clickChange < 0
         ? "Cliques recuaram"
         : "Cliques mantidos";
+  const volumeCopy = `${formatInt(compareCurrent.sent)} emails enviados, ${
+    volumeDelta >= 0 ? "acréscimo" : "redução"
+  } de ${formatInt(Math.abs(volumeDelta))} sobre ${monthName(previousMonth)}.`;
+  const deliveryCopy = deliveryPreserved
+    ? "A taxa de entrega avançou enquanto a taxa de bounce recuou."
+    : `Entrega de ${formatPercent(compareCurrent.delivery)} em ${monthName(currentMonth)} versus ${formatPercent(comparePrevious.delivery)} em ${monthName(previousMonth)}.`;
+  const openingCopy = `${formatPercent(compareCurrent.openRate)} em ${monthName(currentMonth)} versus ${formatPercent(comparePrevious.openRate)} em ${monthName(previousMonth)}${
+    compareCurrent.opens > comparePrevious.opens ? ", com mais volume aberto." : "."
+  }`;
+  const clickCopy =
+    compareCurrent.clicks < comparePrevious.clicks &&
+    compareCurrent.sent > comparePrevious.sent &&
+    compareCurrent.opens > comparePrevious.opens
+      ? "Menos cliques mesmo com crescimento de envios e aberturas."
+      : `${formatInt(compareCurrent.clicks)} cliques únicos em ${monthName(currentMonth)} versus ${formatInt(comparePrevious.clicks)} em ${monthName(previousMonth)}.`;
   const setInsightMonth = (month: string) => {
     setCurrentMonth(month);
     const index = months.indexOf(month);
@@ -832,10 +918,16 @@ function App() {
           <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>
             <NavIcon name="overview" /> Visão geral
           </button>
+          <button className={tab === "summary" ? "active" : ""} onClick={() => setTab("summary")}>
+            <NavIcon name="summary" /> Resumo mensal
+          </button>
           <button className={tab === "comparison" ? "active" : ""} onClick={() => setTab("comparison")}>
             <NavIcon name="comparison" /> Mês a mês
           </button>
-          <button className={tab === "insights" ? "active" : ""} onClick={() => setTab("insights")}>
+          <button className={tab === "insights" ? "active" : ""} onClick={() => {
+            setComparisonSegment("ALL");
+            setTab("insights");
+          }}>
             <NavIcon name="insights" /> Insights
           </button>
         </nav>
@@ -851,11 +943,13 @@ function App() {
             <span className="eyebrow">EMAIL MARKETING · PERFORMANCE</span>
             <h1>
               {tab === "overview" && "Visão geral"}
+              {tab === "summary" && "Resumo mensal"}
               {tab === "comparison" && "Comparativo mensal"}
               {tab === "insights" && "Insights gerenciais"}
             </h1>
             <p>
               {tab === "overview" && "Leitura consolidada da operação e seus principais indicadores."}
+              {tab === "summary" && "Visão oficial validada, organizada por Trade, Corp e Outros."}
               {tab === "comparison" && "Evolução dos KPIs oficiais entre os períodos selecionados."}
               {tab === "insights" && "Leitura descritiva dos movimentos identificados nos dados oficiais."}
             </p>
@@ -867,22 +961,15 @@ function App() {
                 {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
               </select>
             </label>
+          ) : tab === "summary" ? (
+            <label className="select-control">
+              <span>Mês de referência</span>
+              <select value={summaryMonth} onChange={(event) => setSummaryMonth(event.target.value)}>
+                {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+              </select>
+            </label>
           ) : tab === "comparison" ? (
-            <div className="period-pair">
-              <label className="select-control">
-                <span>Mês atual</span>
-                <select value={currentMonth} onChange={(event) => setCurrentMonth(event.target.value)}>
-                  {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
-                </select>
-              </label>
-              <span className="versus">vs.</span>
-              <label className="select-control">
-                <span>Mês anterior</span>
-                <select value={previousMonth} onChange={(event) => setPreviousMonth(event.target.value)}>
-                  {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
-                </select>
-              </label>
-            </div>
+            <span className="validated-badge"><i />Dados validados</span>
           ) : (
             <div className="insight-period">
               <label className="select-control">
@@ -965,26 +1052,163 @@ function App() {
           </>
         )}
 
+        {tab === "summary" && (
+          <div className="summary-view">
+            <section className="summary-heading">
+              <div>
+                <span className="summary-kicker">RESUMO GERAL COMPLETO</span>
+                <h2>{formatMonth(summaryMonth).toUpperCase()}</h2>
+                <p>Estrutura oficial validada por grupo e classificação.</p>
+              </div>
+              <div className="summary-total-card">
+                <span>Total de emails enviados</span>
+                <strong>{formatInt(summaryTotal.sent)}</strong>
+                <small>{formatInt(summaryTotal.communications)} comunicados</small>
+              </div>
+            </section>
+
+            <section className="summary-groups">
+              {["TRADE", "CORP", "OUTROS"].map((group) => {
+                const groupTotal = summaryGroups.find((item) => item.label === group);
+                const groupSegments = summarySegments.filter((item) => item.group === group);
+                if (!groupTotal || groupSegments.length === 0) return null;
+                return (
+                  <article className="summary-group-card" key={group}>
+                    <div className="summary-group-title">
+                      <span style={{ background: GROUP_COLORS[group] }} />
+                      <div>
+                        <h3>{GROUP_LABELS[group] || group}</h3>
+                        <p>{groupSegments.length} classificações no período</p>
+                      </div>
+                    </div>
+                    <div className="summary-table-scroll">
+                      <table className="summary-table">
+                        <thead>
+                          <tr>
+                            <th>Classificação</th>
+                            <th>Comunicados</th>
+                            <th>Emails enviados</th>
+                            <th>Emails recebidos</th>
+                            <th>Aberturas únicas</th>
+                            <th>Taxa de abertura</th>
+                            <th>CTR</th>
+                            <th>CTOR</th>
+                            <th>OPT-OUT</th>
+                            <th>Bounce</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupSegments.map((item) => (
+                            <tr key={`${group}-${item.label}`}>
+                              <td><i style={{ background: segmentColor(item.label) }} />{item.label}</td>
+                              <td>{formatInt(item.communications)}</td>
+                              <td>{formatInt(item.sent)}</td>
+                              <td>{formatInt(item.delivered)}</td>
+                              <td>{formatInt(item.opens)}</td>
+                              <td>{formatPercent(item.openRate)}</td>
+                              <td>{formatPercent(item.ctr)}</td>
+                              <td>{formatPercent(item.ctor)}</td>
+                              <td>{formatPercent(item.optout)}</td>
+                              <td>{formatPercent(item.bounce)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td>Total {GROUP_LABELS[group] || group}</td>
+                            <td>{formatInt(groupTotal.communications)}</td>
+                            <td>{formatInt(groupTotal.sent)}</td>
+                            <td>{formatInt(groupTotal.delivered)}</td>
+                            <td>{formatInt(groupTotal.opens)}</td>
+                            <td>{formatPercent(groupTotal.openRate)}</td>
+                            <td>{formatPercent(groupTotal.ctr)}</td>
+                            <td>{formatPercent(groupTotal.ctor)}</td>
+                            <td>{formatPercent(groupTotal.optout)}</td>
+                            <td>{formatPercent(groupTotal.bounce)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+
+            <section className="summary-total-strip">
+              <div><span>Total de comunicados</span><strong>{formatInt(summaryTotal.communications)}</strong></div>
+              <div><span>Emails enviados</span><strong>{formatInt(summaryTotal.sent)}</strong></div>
+              <div><span>Emails recebidos</span><strong>{formatInt(summaryTotal.delivered)}</strong></div>
+              <div><span>Aberturas únicas</span><strong>{formatInt(summaryTotal.opens)}</strong></div>
+              <div><span>Taxa de abertura</span><strong>{formatPercent(summaryTotal.openRate)}</strong></div>
+              <div><span>CTR</span><strong>{formatPercent(summaryTotal.ctr)}</strong></div>
+              <div><span>CTOR</span><strong>{formatPercent(summaryTotal.ctor)}</strong></div>
+            </section>
+
+            <article className="panel summary-chart-panel">
+              <div className="panel-head">
+                <SectionTitle
+                  title="Emails enviados por classificação"
+                  subtitle={`Volume oficial apresentado em ${formatMonth(summaryMonth)}`}
+                />
+                <BarChart3 aria-hidden="true" />
+              </div>
+              <SummaryBarChart data={summarySegments} />
+            </article>
+          </div>
+        )}
+
         {tab === "comparison" && (
-          <>
+          <div className="comparison-view">
+            <section className="comparison-filterbar" aria-label="Seleção dos períodos">
+              <div className="comparison-filter-fields">
+                <label>
+                  <span>Mês anterior</span>
+                  <select value={currentMonth} onChange={(event) => setCurrentMonth(event.target.value)}>
+                    {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Dois meses atrás</span>
+                  <select value={previousMonth} onChange={(event) => setPreviousMonth(event.target.value)}>
+                    {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Classificação</span>
+                  <select value={comparisonSegment} onChange={(event) => setComparisonSegment(event.target.value)}>
+                    <option value="ALL">Todas as classificações</option>
+                    {classificationOptions.map((label) => <option value={label} key={label}>{label}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="compare-legend">
+                <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
+                <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
+              </div>
+            </section>
+
             <section className="comparison-kpis">
               {[
-                ["Emails enviados", compareCurrent.sent, comparePrevious.sent, false],
-                ["Emails recebidos", compareCurrent.delivered, comparePrevious.delivered, false],
-                ["Taxa de abertura", compareCurrent.openRate, comparePrevious.openRate, true],
-                ["Cliques únicos", compareCurrent.clicks, comparePrevious.clicks, false],
-                ["CTR", compareCurrent.ctr, comparePrevious.ctr, true],
-                ["CTOR", compareCurrent.ctor, comparePrevious.ctor, true],
-                ["Bounce rate", compareCurrent.bounce, comparePrevious.bounce, true],
-              ].map(([label, a, b, isRate]) => (
-                <article className="comparison-kpi" key={String(label)}>
-                  <span>{label}</span>
-                  <div className="compare-values">
-                    <strong>{isRate ? formatPercent(Number(a)) : formatInt(Number(a))}</strong>
-                    <em>{isRate ? formatPercent(Number(b)) : formatInt(Number(b))}</em>
+                { label: "Comunicações", a: compareCurrent.communications, b: comparePrevious.communications, isRate: false, icon: Layers3 },
+                { label: "Emails enviados", a: compareCurrent.sent, b: comparePrevious.sent, isRate: false, icon: Send },
+                { label: "Emails recebidos", a: compareCurrent.delivered, b: comparePrevious.delivered, isRate: false, icon: MailCheck },
+                { label: "Taxa de abertura", a: compareCurrent.openRate, b: comparePrevious.openRate, isRate: true, icon: Eye },
+                { label: "Cliques únicos", a: compareCurrent.clicks, b: comparePrevious.clicks, isRate: false, icon: MousePointerClick },
+                { label: "CTR único", a: compareCurrent.ctr, b: comparePrevious.ctr, isRate: true, icon: MoveUpRight },
+                { label: "CTOR", a: compareCurrent.ctor, b: comparePrevious.ctor, isRate: true, icon: Target },
+                { label: "Bounce rate", a: compareCurrent.bounce, b: comparePrevious.bounce, isRate: true, icon: ShieldCheck },
+              ].map(({ label, a, b, isRate, icon: Icon }) => (
+                <article className="comparison-kpi" key={label}>
+                  <div className="comparison-kpi-head">
+                    <span className="comparison-kpi-icon"><Icon aria-hidden="true" /></span>
+                    <span>{label}</span>
                   </div>
-                  <small className={trendClass(Number(a), Number(b), label === "Bounce rate")}>
-                    {variationLabel(Number(a), Number(b), isRate ? "pp" : "percent")}
+                  <div className="compare-values">
+                    <div><small><i className="dot-current" />{formatMonth(currentMonth, true)}</small><strong>{isRate ? formatPercent(a) : formatInt(a)}</strong></div>
+                    <div><small><i className="dot-previous" />{formatMonth(previousMonth, true)}</small><em>{isRate ? formatPercent(b) : formatInt(b)}</em></div>
+                  </div>
+                  <small className={`comparison-variation ${trendClass(a, b, label === "Bounce rate")}`}>
+                    {variationLabel(a, b, isRate ? "pp" : "percent")}
                   </small>
                 </article>
               ))}
@@ -1023,34 +1247,34 @@ function App() {
             </section>
             <VerticalCompare title="CTR por classificação" subtitle="Cliques únicos sobre emails enviados" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="ctr" currentMonth={currentMonth} previousMonth={previousMonth} />
             <VerticalCompare title="Taxa de abertura por classificação" subtitle="Aberturas únicas sobre emails recebidos" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="openRate" currentMonth={currentMonth} previousMonth={previousMonth} />
-          </>
+          </div>
         )}
 
         {tab === "insights" && (
-          <>
+          <div className="insights-view">
             <section className="insight-cards">
               <article className="insight-card scale">
-                <div className="insight-card-head"><span className="insight-icon">↗</span>Escala</div>
+                <div className="insight-card-head"><span className="insight-icon"><TrendingUp aria-hidden="true" /></span>Escala</div>
                 <h3>{volumeHeadline}</h3>
-                <p>{formatInt(compareCurrent.sent)} emails enviados, ante {formatInt(comparePrevious.sent)} em {formatMonth(previousMonth)}.</p>
+                <p>{volumeCopy}</p>
                 <div className={`insight-signal ${trendClass(compareCurrent.sent, comparePrevious.sent)}`}><strong>{variationLabel(compareCurrent.sent, comparePrevious.sent)}</strong><span>em envios</span></div>
               </article>
               <article className="insight-card delivery">
-                <div className="insight-card-head"><span className="insight-icon">✓</span>Entrega</div>
+                <div className="insight-card-head"><span className="insight-icon"><CheckCircle2 aria-hidden="true" /></span>Entrega</div>
                 <h3>{deliveryHeadline}</h3>
-                <p>{formatPercent(compareCurrent.delivery)} no mês atual versus {formatPercent(comparePrevious.delivery)} no comparativo.</p>
+                <p>{deliveryCopy}</p>
                 <div className={`insight-signal ${trendClass(compareCurrent.delivery, comparePrevious.delivery)}`}><strong>{variationLabel(compareCurrent.delivery, comparePrevious.delivery, "pp")}</strong><span>em entrega</span></div>
               </article>
               <article className="insight-card opening">
-                <div className="insight-card-head"><span className="insight-icon">◎</span>Abertura</div>
+                <div className="insight-card-head"><span className="insight-icon"><Eye aria-hidden="true" /></span>Abertura</div>
                 <h3>{openingHeadline}</h3>
-                <p>{formatPercent(compareCurrent.openRate)} no mês atual versus {formatPercent(comparePrevious.openRate)} no comparativo.</p>
+                <p>{openingCopy}</p>
                 <div className={`insight-signal ${trendClass(compareCurrent.openRate, comparePrevious.openRate)}`}><strong>{variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}</strong><span>na taxa</span></div>
               </article>
               <article className="insight-card alert">
-                <div className="insight-card-head"><span className="insight-icon">!</span>Cliques</div>
+                <div className="insight-card-head"><span className="insight-icon"><AlertTriangle aria-hidden="true" /></span>Cliques</div>
                 <h3>{clickHeadline}</h3>
-                <p>{formatInt(compareCurrent.clicks)} cliques únicos no mês atual versus {formatInt(comparePrevious.clicks)} no comparativo.</p>
+                <p>{clickCopy}</p>
                 <div className={`insight-signal ${trendClass(compareCurrent.clicks, comparePrevious.clicks)}`}><strong>{variationLabel(compareCurrent.clicks, comparePrevious.clicks)}</strong><span>em cliques únicos</span></div>
               </article>
             </section>
@@ -1081,12 +1305,12 @@ function App() {
                 <SectionTitle title="Diagnóstico do mês" subtitle="Leitura descritiva, sem inferência causal" />
                 <div className="diagnosis-list">
                   <div className={deliveryChange >= 0 ? "good" : "warn"}>
-                    <strong>{deliveryChange >= 0 ? "Avanço" : "Recuo"} · alcance e entrega</strong>
+                    <strong>{deliveryChange >= 0 ? "Bom" : "Atenção"} · alcance e entrega</strong>
                     <p>Envios {variationLabel(compareCurrent.sent, comparePrevious.sent)}, recebidos {variationLabel(compareCurrent.delivered, comparePrevious.delivered)} e entrega {variationLabel(compareCurrent.delivery, comparePrevious.delivery, "pp")}.</p>
                   </div>
                   <div className="neutral">
-                    <strong>Abertura · variação observada</strong>
-                    <p>A taxa variou {variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}; as aberturas únicas variaram {variationLabel(compareCurrent.opens, comparePrevious.opens)}.</p>
+                    <strong>{Math.abs(openChange) <= 0.1 ? "Manteve" : "Mudou"} · abertura</strong>
+                    <p>A taxa variou {variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}; aberturas {compareCurrent.opens >= comparePrevious.opens ? "cresceram" : "recuaram"} junto com o volume.</p>
                   </div>
                   <div className={ctrChange < 0 && ctorChange < 0 ? "warn" : "good"}>
                     <strong>{ctrChange < 0 && ctorChange < 0 ? "Alerta" : "Avanço"} · ação pós-abertura</strong>
@@ -1143,7 +1367,7 @@ function App() {
               <span>Escopo gerencial · envios internos excluídos</span>
               <span>Nenhuma meta ou benchmark externo aplicado</span>
             </div>
-          </>
+          </div>
         )}
 
         <footer>

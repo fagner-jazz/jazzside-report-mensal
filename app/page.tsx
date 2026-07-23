@@ -19,6 +19,7 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 const SUPABASE_URL = "https://fidfdgnnoqamhftczcer.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY =
@@ -296,16 +297,21 @@ function KpiCard({
   variation,
   status,
   icon,
+  tone,
 }: {
   label: string;
   value: string;
   variation: string;
   status: string;
-  icon: string;
+  icon: LucideIcon;
+  tone: string;
 }) {
+  const Icon = icon;
   return (
     <article className="kpi-card">
-      <div className={`kpi-icon icon-${icon}`}>{icon.toUpperCase()}</div>
+      <div className={`kpi-icon icon-${tone}`}>
+        <Icon aria-hidden="true" />
+      </div>
       <div className="kpi-copy">
         <span>{label}</span>
         <strong>{value}</strong>
@@ -583,7 +589,10 @@ function VerticalCompare({
         <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
       </div>
       <div className="vertical-scroll">
-        <div className="vertical-chart" style={{ minWidth: `${Math.max(880, labels.length * 116)}px` }}>
+        <div
+          className="vertical-chart"
+          style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}
+        >
           {labels.map((label) => {
             const a = current.find((item) => item.label === label)?.[metric] || 0;
             const b = previous.find((item) => item.label === label)?.[metric] || 0;
@@ -725,49 +734,56 @@ function App() {
       value: formatInt(current.sent),
       variation: variationLabel(current.sent, previous.sent),
       status: trendClass(current.sent, previous.sent),
-      icon: "env",
+      icon: Send,
+      tone: "env",
     },
     {
       label: "Emails recebidos",
       value: formatInt(current.delivered),
       variation: variationLabel(current.delivered, previous.delivered),
       status: trendClass(current.delivered, previous.delivered),
-      icon: "rec",
+      icon: MailCheck,
+      tone: "rec",
     },
     {
       label: "Taxa de abertura",
       value: formatPercent(current.openRate),
       variation: variationLabel(current.openRate, previous.openRate, "pp"),
       status: trendClass(current.openRate, previous.openRate),
-      icon: "or",
+      icon: Eye,
+      tone: "or",
     },
     {
       label: "Cliques únicos",
       value: formatInt(current.clicks),
       variation: variationLabel(current.clicks, previous.clicks),
       status: trendClass(current.clicks, previous.clicks),
-      icon: "clk",
+      icon: MousePointerClick,
+      tone: "clk",
     },
     {
       label: "CTR",
       value: formatPercent(current.ctr),
       variation: variationLabel(current.ctr, previous.ctr, "pp"),
       status: trendClass(current.ctr, previous.ctr),
-      icon: "ctr",
+      icon: MoveUpRight,
+      tone: "ctr",
     },
     {
       label: "CTOR",
       value: formatPercent(current.ctor),
       variation: variationLabel(current.ctor, previous.ctor, "pp"),
       status: trendClass(current.ctor, previous.ctor),
-      icon: "ctor",
+      icon: Target,
+      tone: "ctor",
     },
     {
       label: "Bounce rate",
       value: formatPercent(current.bounce),
       variation: variationLabel(current.bounce, previous.bounce, "pp"),
       status: trendClass(current.bounce, previous.bounce, true),
-      icon: "bnc",
+      icon: ShieldCheck,
+      tone: "bnc",
     },
   ];
 

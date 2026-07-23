@@ -59,6 +59,20 @@ const GROUP_COLORS: Record<string, string> = {
   OUTROS: "#f3a51f",
 };
 
+const SEGMENT_COLORS: Record<string, string> = {
+  Consolidadores: "#4361EE",
+  Corporativas: "#00A6A6",
+  OTAs: "#F59E0B",
+  Operators: "#8B5CF6",
+  LC: "#EF4444",
+  GE: "#22C55E",
+  Club: "#EC4899",
+  Aniversário: "#06B6D4",
+  "Aniversário Agências": "#A16207",
+  Pontual: "#64748B",
+  Vendas: "#F97316",
+};
+
 const GROUP_LABELS: Record<string, string> = {
   TRADE: "Trade",
   CORP: "Corp",
@@ -160,6 +174,10 @@ function segmentLabel(segment: string) {
     VENDAS: "Vendas",
   };
   return aliases[normalized] || segment;
+}
+
+function segmentColor(label: string) {
+  return SEGMENT_COLORS[label] || "#64748B";
 }
 
 function diff(current: number, previous: number) {
@@ -542,7 +560,7 @@ function VerticalCompare({
                     <b>{formatPercent(a)}</b>
                   </div>
                 </div>
-                <span>{label}</span>
+                <span><i style={{ background: segmentColor(label) }} />{label}</span>
               </div>
             );
           })}
@@ -688,15 +706,115 @@ function App() {
     },
   ];
 
-  const volumeChange = diff(compareCurrent.sent, comparePrevious.sent);
   const clickChange = diff(compareCurrent.clicks, comparePrevious.clicks);
   const deliveryChange = pp(compareCurrent.delivery, comparePrevious.delivery);
   const openChange = pp(compareCurrent.openRate, comparePrevious.openRate);
   const ctrChange = pp(compareCurrent.ctr, comparePrevious.ctr);
-  const bounceChange = pp(compareCurrent.bounce, comparePrevious.bounce);
-  const topOpen = [...compareSegmentsCurrent].sort((a, b) => b.openRate - a.openRate)[0];
-  const topCtr = [...compareSegmentsCurrent].sort((a, b) => b.ctr - a.ctr)[0];
-  const topVolume = [...compareSegmentsCurrent].sort((a, b) => b.sent - a.sent)[0];
+  const ctorChange = pp(compareCurrent.ctor, comparePrevious.ctor);
+  const communicationsChange = diff(
+    compareCurrent.communications,
+    comparePrevious.communications,
+  );
+  const comparisonSegmentLabels = Array.from(
+    new Set([
+      ...compareSegmentsCurrent.map((item) => item.label),
+      ...compareSegmentsPrevious.map((item) => item.label),
+    ]),
+  );
+  const segmentMovements = comparisonSegmentLabels
+    .flatMap((label) => {
+      const currentSegment = compareSegmentsCurrent.find((item) => item.label === label);
+      const previousSegment = compareSegmentsPrevious.find((item) => item.label === label);
+      if (!currentSegment || !previousSegment || !currentSegment.sent || !previousSegment.sent) {
+        return [];
+      }
+      return [
+        {
+          label,
+          metric: "Abertura",
+          current: currentSegment.openRate,
+          previous: previousSegment.openRate,
+          change: pp(currentSegment.openRate, previousSegment.openRate),
+        },
+        {
+          label,
+          metric: "CTR",
+          current: currentSegment.ctr,
+          previous: previousSegment.ctr,
+          change: pp(currentSegment.ctr, previousSegment.ctr),
+        },
+      ];
+    })
+    .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+    .slice(0, 4);
+  const clickDeclines = comparisonSegmentLabels
+    .map((label) => {
+      const currentSegment = compareSegmentsCurrent.find((item) => item.label === label);
+      const previousSegment = compareSegmentsPrevious.find((item) => item.label === label);
+      return {
+        label,
+        change:
+          currentSegment && previousSegment
+            ? pp(currentSegment.ctr, previousSegment.ctr)
+            : 0,
+      };
+    })
+    .filter((item) => item.change < 0)
+    .sort((a, b) => a.change - b.change)
+    .slice(0, 3)
+    .map((item) => item.label);
+  const openingAdvances = comparisonSegmentLabels
+    .map((label) => {
+      const currentSegment = compareSegmentsCurrent.find((item) => item.label === label);
+      const previousSegment = compareSegmentsPrevious.find((item) => item.label === label);
+      return {
+        label,
+        change:
+          currentSegment && previousSegment
+            ? pp(currentSegment.openRate, previousSegment.openRate)
+            : 0,
+      };
+    })
+    .filter((item) => item.change > 0)
+    .sort((a, b) => b.change - a.change)
+    .slice(0, 3)
+    .map((item) => item.label);
+  const journeyStages = [
+    ["Enviados", "base da jornada", compareCurrent.sent, comparePrevious.sent],
+    ["Recebidos", "entrega", compareCurrent.delivered, comparePrevious.delivered],
+    ["Aberturas", "únicas", compareCurrent.opens, comparePrevious.opens],
+    ["Cliques", "únicos", compareCurrent.clicks, comparePrevious.clicks],
+  ] as const;
+  const journeyMaximum = Math.max(compareCurrent.sent, comparePrevious.sent, 1);
+  const volumeHeadline =
+    compareCurrent.sent > comparePrevious.sent
+      ? "Volume ampliado"
+      : compareCurrent.sent < comparePrevious.sent
+        ? "Volume reduzido"
+        : "Volume mantido";
+  const deliveryHeadline =
+    deliveryChange > 0
+      ? "Taxa de entrega avançou"
+      : deliveryChange < 0
+        ? "Taxa de entrega recuou"
+        : "Taxa de entrega mantida";
+  const openingHeadline =
+    openChange > 0
+      ? "Taxa de abertura avançou"
+      : openChange < 0
+        ? "Taxa de abertura recuou"
+        : "Taxa de abertura mantida";
+  const clickHeadline =
+    clickChange !== null && clickChange > 0
+      ? "Cliques avançaram"
+      : clickChange !== null && clickChange < 0
+        ? "Cliques recuaram"
+        : "Cliques mantidos";
+  const setInsightMonth = (month: string) => {
+    setCurrentMonth(month);
+    const index = months.indexOf(month);
+    setPreviousMonth(index > 0 ? months[index - 1] : month);
+  };
 
   return (
     <div className="app-shell">
@@ -749,7 +867,7 @@ function App() {
                 {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
               </select>
             </label>
-          ) : (
+          ) : tab === "comparison" ? (
             <div className="period-pair">
               <label className="select-control">
                 <span>Mês atual</span>
@@ -764,6 +882,16 @@ function App() {
                   {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
                 </select>
               </label>
+            </div>
+          ) : (
+            <div className="insight-period">
+              <label className="select-control">
+                <span>Mês analisado</span>
+                <select value={currentMonth} onChange={(event) => setInsightMonth(event.target.value)}>
+                  {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+                </select>
+              </label>
+              <span className="scope-pill"><i />Sem benchmark externo</span>
             </div>
           )}
         </header>
@@ -805,7 +933,7 @@ function App() {
                     <tbody>
                       {segments.map((item) => (
                         <tr key={`${item.group}-${item.label}`}>
-                          <td><i style={{ background: GROUP_COLORS[item.group] }} />{item.label}</td>
+                          <td><i style={{ background: segmentColor(item.label) }} />{item.label}</td>
                           <td>{GROUP_LABELS[item.group] || item.group}</td>
                           <td>{formatInt(item.sent)}</td>
                           <td>{formatInt(item.delivered)}</td>
@@ -827,7 +955,7 @@ function App() {
                   {[...segments].sort((a, b) => b.openRate - a.openRate).map((item) => (
                     <div key={`${item.group}-${item.label}`}>
                       <span>{item.label}</span>
-                      <div><i style={{ width: `${item.openRate * 100}%`, background: GROUP_COLORS[item.group] }} /></div>
+                      <div><i style={{ width: `${item.openRate * 100}%`, background: segmentColor(item.label) }} /></div>
                       <strong>{formatPercent(item.openRate)}</strong>
                     </div>
                   ))}
@@ -900,82 +1028,121 @@ function App() {
 
         {tab === "insights" && (
           <>
-            <section className="insight-hero">
-              <div>
-                <span className="eyebrow">LEITURA EXECUTIVA · {formatMonth(currentMonth).toUpperCase()}</span>
-                <h2>O volume cresceu, enquanto a resposta de clique recuou no comparativo.</h2>
-                <p>Conclusão descritiva calculada sobre os dois períodos selecionados, sem benchmark externo ou atribuição causal.</p>
-              </div>
-              <div className="hero-stat">
-                <span>Volume enviado</span>
-                <strong>{volumeChange === null ? "sem base" : variationLabel(compareCurrent.sent, comparePrevious.sent)}</strong>
-                <small>{formatInt(compareCurrent.sent)} emails em {formatMonth(currentMonth)}</small>
-              </div>
-            </section>
-
             <section className="insight-cards">
               <article className="insight-card scale">
-                <span>01 · ESCALA</span><h3>{variationLabel(compareCurrent.sent, comparePrevious.sent)} em envios</h3>
-                <p>O período atual registrou {formatInt(compareCurrent.sent)} envios, ante {formatInt(comparePrevious.sent)} no período comparado.</p>
+                <div className="insight-card-head"><span className="insight-icon">↗</span>Escala</div>
+                <h3>{volumeHeadline}</h3>
+                <p>{formatInt(compareCurrent.sent)} emails enviados, ante {formatInt(comparePrevious.sent)} em {formatMonth(previousMonth)}.</p>
+                <div className={`insight-signal ${trendClass(compareCurrent.sent, comparePrevious.sent)}`}><strong>{variationLabel(compareCurrent.sent, comparePrevious.sent)}</strong><span>em envios</span></div>
               </article>
               <article className="insight-card delivery">
-                <span>02 · ENTREGA</span><h3>{variationLabel(compareCurrent.delivery, comparePrevious.delivery, "pp")}</h3>
-                <p>A taxa de entrega passou de {formatPercent(comparePrevious.delivery)} para {formatPercent(compareCurrent.delivery)}.</p>
+                <div className="insight-card-head"><span className="insight-icon">✓</span>Entrega</div>
+                <h3>{deliveryHeadline}</h3>
+                <p>{formatPercent(compareCurrent.delivery)} no mês atual versus {formatPercent(comparePrevious.delivery)} no comparativo.</p>
+                <div className={`insight-signal ${trendClass(compareCurrent.delivery, comparePrevious.delivery)}`}><strong>{variationLabel(compareCurrent.delivery, comparePrevious.delivery, "pp")}</strong><span>em entrega</span></div>
               </article>
               <article className="insight-card opening">
-                <span>03 · ABERTURA</span><h3>{variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}</h3>
-                <p>Foram {formatInt(compareCurrent.opens)} aberturas únicas, com OR de {formatPercent(compareCurrent.openRate)}.</p>
+                <div className="insight-card-head"><span className="insight-icon">◎</span>Abertura</div>
+                <h3>{openingHeadline}</h3>
+                <p>{formatPercent(compareCurrent.openRate)} no mês atual versus {formatPercent(comparePrevious.openRate)} no comparativo.</p>
+                <div className={`insight-signal ${trendClass(compareCurrent.openRate, comparePrevious.openRate)}`}><strong>{variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}</strong><span>na taxa</span></div>
               </article>
               <article className="insight-card alert">
-                <span>04 · CLIQUE</span><h3>{variationLabel(compareCurrent.clicks, comparePrevious.clicks)} em cliques</h3>
-                <p>O CTR variou {variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")} e o CTOR {variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")}.</p>
+                <div className="insight-card-head"><span className="insight-icon">!</span>Cliques</div>
+                <h3>{clickHeadline}</h3>
+                <p>{formatInt(compareCurrent.clicks)} cliques únicos no mês atual versus {formatInt(comparePrevious.clicks)} no comparativo.</p>
+                <div className={`insight-signal ${trendClass(compareCurrent.clicks, comparePrevious.clicks)}`}><strong>{variationLabel(compareCurrent.clicks, comparePrevious.clicks)}</strong><span>em cliques únicos</span></div>
               </article>
             </section>
 
-            <section className="journey">
-              <SectionTitle title="Jornada do período atual" subtitle="Conversões observadas entre as etapas medidas" />
-              <div className="journey-grid">
-                {[
-                  ["Enviados", compareCurrent.sent, "100,00% da base enviada"],
-                  ["Recebidos", compareCurrent.delivered, `${formatPercent(compareCurrent.delivery)} de entrega`],
-                  ["Aberturas únicas", compareCurrent.opens, `${formatPercent(compareCurrent.openRate)} dos recebidos`],
-                  ["Cliques únicos", compareCurrent.clicks, `${formatPercent(compareCurrent.ctor)} das aberturas`],
-                ].map(([label, value, note], index) => (
-                  <article key={String(label)}>
-                    <span>0{index + 1}</span><small>{label}</small><strong>{formatInt(Number(value))}</strong><p>{note}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="insight-detail-grid">
-              <article className="panel narrative">
-                <SectionTitle title="Leitura dos movimentos" subtitle={`${formatMonth(previousMonth)} → ${formatMonth(currentMonth)}`} />
-                <div className="narrative-list">
-                  <div><i className={volumeChange !== null && volumeChange >= 0 ? "up" : "down"}>01</i><p><strong>Escala:</strong> envios {variationLabel(compareCurrent.sent, comparePrevious.sent)} e recebidos {variationLabel(compareCurrent.delivered, comparePrevious.delivered)}.</p></div>
-                  <div><i className={deliveryChange >= 0 ? "up" : "down"}>02</i><p><strong>Entrega:</strong> variação de {variationLabel(compareCurrent.delivery, comparePrevious.delivery, "pp")}; bounce variou {variationLabel(compareCurrent.bounce, comparePrevious.bounce, "pp")}.</p></div>
-                  <div><i className={openChange >= 0 ? "up" : "down"}>03</i><p><strong>Engajamento:</strong> abertura {variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}, CTR {variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")} e CTOR {variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")}.</p></div>
+            <section className="insight-main-grid">
+              <article className="panel performance-journey">
+                <div className="panel-head">
+                  <SectionTitle title="Jornada de performance" subtitle={`Do envio à ação, ${formatMonth(previousMonth)} versus ${formatMonth(currentMonth)}`} />
+                  <div className="compare-legend">
+                    <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
+                    <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
+                  </div>
+                </div>
+                <div className="journey-comparison">
+                  {journeyStages.map(([label, note, currentValue, previousValue]) => (
+                    <div className="journey-stage" key={label}>
+                      <div className="journey-label"><strong>{label}</strong><small>{note}</small></div>
+                      <div className="journey-bars">
+                        <span><i className="current" style={{ width: `${(currentValue / journeyMaximum) * 100}%` }} /></span>
+                        <span><i className="previous" style={{ width: `${(previousValue / journeyMaximum) * 100}%` }} /></span>
+                      </div>
+                      <div className="journey-values"><strong>{formatInt(currentValue)}</strong><small>{formatInt(previousValue)}</small></div>
+                    </div>
+                  ))}
                 </div>
               </article>
-              <article className="panel evidence">
-                <SectionTitle title="Destaques observados" subtitle="Resultados do mês atual, sem inferência de causa" />
-                <div className="evidence-list">
-                  <div><span>Maior volume</span><strong>{topVolume?.label || "—"}</strong><small>{topVolume ? `${formatInt(topVolume.sent)} enviados` : "sem dado"}</small></div>
-                  <div><span>Maior abertura</span><strong>{topOpen?.label || "—"}</strong><small>{topOpen ? formatPercent(topOpen.openRate) : "sem dado"}</small></div>
-                  <div><span>Maior CTR</span><strong>{topCtr?.label || "—"}</strong><small>{topCtr ? formatPercent(topCtr.ctr) : "sem dado"}</small></div>
+              <aside className="panel diagnosis-panel">
+                <SectionTitle title="Diagnóstico do mês" subtitle="Leitura descritiva, sem inferência causal" />
+                <div className="diagnosis-list">
+                  <div className={deliveryChange >= 0 ? "good" : "warn"}>
+                    <strong>{deliveryChange >= 0 ? "Avanço" : "Recuo"} · alcance e entrega</strong>
+                    <p>Envios {variationLabel(compareCurrent.sent, comparePrevious.sent)}, recebidos {variationLabel(compareCurrent.delivered, comparePrevious.delivered)} e entrega {variationLabel(compareCurrent.delivery, comparePrevious.delivery, "pp")}.</p>
+                  </div>
+                  <div className="neutral">
+                    <strong>Abertura · variação observada</strong>
+                    <p>A taxa variou {variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")}; as aberturas únicas variaram {variationLabel(compareCurrent.opens, comparePrevious.opens)}.</p>
+                  </div>
+                  <div className={ctrChange < 0 && ctorChange < 0 ? "warn" : "good"}>
+                    <strong>{ctrChange < 0 && ctorChange < 0 ? "Alerta" : "Avanço"} · ação pós-abertura</strong>
+                    <p>CTR {variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")} e CTOR {variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")}.</p>
+                  </div>
+                </div>
+              </aside>
+            </section>
+
+            <section className="insight-lower-grid">
+              <article className="panel movements-panel">
+                <SectionTitle title="Movimentos observados nos recortes" subtitle="Maiores variações absolutas entre classificações comparáveis" />
+                <div className="movement-list">
+                  {segmentMovements.map((movement) => {
+                    const movementMaximum = Math.max(movement.current, movement.previous, 0.0001);
+                    return (
+                      <div className="movement" key={`${movement.label}-${movement.metric}`}>
+                        <div className="movement-head">
+                          <strong>{movement.label} · {movement.metric}</strong>
+                          <span className={movement.change >= 0 ? "positive" : "negative"}>{variationLabel(movement.current, movement.previous, "pp")}</span>
+                        </div>
+                        <p>{formatPercent(movement.current)} em {formatMonth(currentMonth)} versus {formatPercent(movement.previous)} em {formatMonth(previousMonth)}.</p>
+                        <div className="movement-bar">
+                          <span>{formatMonth(currentMonth, true)}</span>
+                          <i><b style={{ width: `${Math.max(3, (movement.current / movementMaximum) * 100)}%` }} /></i>
+                          <strong>{formatPercent(movement.current)}</strong>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+
+              <article className="panel questions-panel">
+                <SectionTitle title="Perguntas para decisão" subtitle="Próximas análises sustentadas pelos dados" />
+                <div className="questions-list">
+                  <div className="question">
+                    <div><span>01</span><strong>Onde a eficiência de clique mudou?</strong></div>
+                    <p>{clickDeclines.length ? `Investigar as campanhas de ${clickDeclines.join(", ")}, que apresentaram os maiores recuos de CTR entre as classificações comparáveis.` : "Abrir as campanhas com maior variação de CTR para entender onde o movimento se concentrou."}</p>
+                  </div>
+                  <div className="question">
+                    <div><span>02</span><strong>O que acompanhou o avanço de abertura?</strong></div>
+                    <p>{openingAdvances.length ? `Comparar as campanhas de ${openingAdvances.join(", ")}, que registraram os maiores avanços de abertura.` : "Comparar as campanhas com maior variação de abertura entre os períodos."}</p>
+                  </div>
+                  <div className="question">
+                    <div><span>03</span><strong>A mudança de frequência alterou a resposta?</strong></div>
+                    <p>As comunicações variaram {communicationsChange === null ? "sem base comparável" : variationLabel(compareCurrent.communications, comparePrevious.communications)}. Cruzar frequência por classificação com CTR, CTOR e opt-out.</p>
+                  </div>
                 </div>
               </article>
             </section>
 
-            <article className="panel decision-panel">
-              <SectionTitle title="Perguntas orientadoras para a próxima análise" subtitle="Pontos que os dados indicam para investigação — não são conclusões causais" />
-              <div className="decision-grid">
-                <p><span>01</span>Quais classificações concentraram a queda de {clickChange === null ? "cliques" : formatPercent(Math.abs(clickChange), 1) + " em cliques"}?</p>
-                <p><span>02</span>O aumento de volume ocorreu nos mesmos segmentos com maior taxa de abertura?</p>
-                <p><span>03</span>Quais campanhas explicam a variação de {Math.abs(ctrChange).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} p.p. no CTR?</p>
-                <p><span>04</span>A redução de {Math.abs(bounceChange).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} p.p. em bounce se repete no próximo ciclo?</p>
-              </div>
-            </article>
+            <div className="insight-method">
+              <span>Escopo gerencial · envios internos excluídos</span>
+              <span>Nenhuma meta ou benchmark externo aplicado</span>
+            </div>
           </>
         )}
 

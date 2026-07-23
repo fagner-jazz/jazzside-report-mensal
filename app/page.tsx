@@ -12,6 +12,7 @@ import {
   MailCheck,
   MousePointerClick,
   MoveUpRight,
+  Percent,
   Send,
   ShieldCheck,
   Sparkles,
@@ -60,7 +61,7 @@ type RateKey =
 
 type Rates = Record<RateKey, number>;
 type Enriched = Metrics & Rates;
-type Tab = "overview" | "summary" | "comparison" | "insights";
+type Tab = "overview" | "summary" | "comparison" | "semester" | "insights";
 
 const EMPTY: Metrics = {
   communications: 0,
@@ -279,15 +280,21 @@ function totalForMonth(rows: RawRow[], month: string) {
   );
 }
 
+function totalForRows(rows: RawRow[]) {
+  return enrich(rows.reduce((total, row) => add(total, toMetrics(row)), EMPTY));
+}
+
 function NavIcon({ name }: { name: Tab }) {
   const Icon =
     name === "summary"
       ? Table2
       : name === "comparison"
         ? CalendarRange
-        : name === "insights"
-          ? Sparkles
-          : LayoutDashboard;
+        : name === "semester"
+          ? BarChart3
+          : name === "insights"
+            ? Sparkles
+            : LayoutDashboard;
   return <Icon aria-hidden="true" />;
 }
 
@@ -298,6 +305,7 @@ function KpiCard({
   status,
   icon,
   tone,
+  compareLabel = "vs. mês anterior",
 }: {
   label: string;
   value: string;
@@ -305,6 +313,7 @@ function KpiCard({
   status: string;
   icon: LucideIcon;
   tone: string;
+  compareLabel?: string;
 }) {
   const Icon = icon;
   return (
@@ -315,10 +324,79 @@ function KpiCard({
       <div className="kpi-copy">
         <span>{label}</span>
         <strong>{value}</strong>
-        <small className={status}>{variation} <em>vs. mês anterior</em></small>
+        <small className={status}>{variation} <em>{compareLabel}</em></small>
       </div>
     </article>
   );
+}
+
+function buildMonthlyKpis(current: Enriched, previous: Enriched) {
+  return [
+    {
+      label: "Comunicações",
+      value: formatInt(current.communications),
+      variation: variationLabel(current.communications, previous.communications),
+      status: trendClass(current.communications, previous.communications),
+      icon: Layers3,
+      tone: "com",
+    },
+    {
+      label: "Emails enviados",
+      value: formatInt(current.sent),
+      variation: variationLabel(current.sent, previous.sent),
+      status: trendClass(current.sent, previous.sent),
+      icon: Send,
+      tone: "env",
+    },
+    {
+      label: "Emails recebidos",
+      value: formatInt(current.delivered),
+      variation: variationLabel(current.delivered, previous.delivered),
+      status: trendClass(current.delivered, previous.delivered),
+      icon: MailCheck,
+      tone: "rec",
+    },
+    {
+      label: "Taxa de abertura",
+      value: formatPercent(current.openRate),
+      variation: variationLabel(current.openRate, previous.openRate, "pp"),
+      status: trendClass(current.openRate, previous.openRate),
+      icon: Eye,
+      tone: "or",
+    },
+    {
+      label: "Cliques únicos",
+      value: formatInt(current.clicks),
+      variation: variationLabel(current.clicks, previous.clicks),
+      status: trendClass(current.clicks, previous.clicks),
+      icon: MousePointerClick,
+      tone: "clk",
+    },
+    {
+      label: "CTR",
+      value: formatPercent(current.ctr),
+      variation: variationLabel(current.ctr, previous.ctr, "pp"),
+      status: trendClass(current.ctr, previous.ctr),
+      icon: MoveUpRight,
+      tone: "ctr",
+    },
+    {
+      label: "CTOR",
+      value: formatPercent(current.ctor),
+      variation: variationLabel(current.ctor, previous.ctor, "pp"),
+      status: trendClass(current.ctor, previous.ctor),
+      icon: Target,
+      tone: "ctor",
+    },
+    {
+      label: "Bounce rate",
+      value: formatPercent(current.bounce),
+      variation: variationLabel(current.bounce, previous.bounce, "pp"),
+      status: trendClass(current.bounce, previous.bounce, true),
+      icon: ShieldCheck,
+      tone: "bnc",
+    },
+  ];
 }
 
 function SectionTitle({
@@ -697,7 +775,11 @@ function App() {
   const groups = groupRows(rows, selectedMonth);
   const segments = segmentRows(rows, selectedMonth);
   const trendMonths = months.slice(-trendCount);
+  const summaryIndex = months.indexOf(summaryMonth);
+  const summaryPreviousMonth =
+    summaryIndex > 0 ? months[summaryIndex - 1] : summaryMonth;
   const summaryTotal = totalForMonth(rows, summaryMonth);
+  const summaryPrevious = totalForMonth(rows, summaryPreviousMonth);
   const summaryGroups = groupRows(rows, summaryMonth);
   const summarySegments = segmentRows(rows, summaryMonth);
   const compareCurrent = totalForMonth(comparisonRows, currentMonth);
@@ -706,6 +788,48 @@ function App() {
   const compareGroupsPrevious = groupRows(comparisonRows, previousMonth);
   const compareSegmentsCurrent = segmentRows(comparisonRows, currentMonth);
   const compareSegmentsPrevious = segmentRows(comparisonRows, previousMonth);
+  const semesterMonths = months.filter((month) => month >= "2026-01" && month <= "2026-06");
+  const semesterRows = rows.filter((row) => semesterMonths.includes(row.month_key));
+  const semesterTotal = totalForRows(semesterRows);
+  const semesterAgencies = totalForRows(
+    semesterRows.filter((row) => row.dashboard_group === "TRADE"),
+  );
+  const semesterCompanies = totalForRows(
+    semesterRows.filter((row) => row.dashboard_group === "CORP"),
+  );
+  const semesterOthers = totalForRows(
+    semesterRows.filter((row) => row.dashboard_group === "OUTROS"),
+  );
+  const semesterRowsByAudience = [
+    { label: "Agências", note: "Trade", data: semesterAgencies },
+    { label: "Empresas", note: "Corp", data: semesterCompanies },
+  ];
+  const semesterMainKpis = [
+    { label: "Enviados", value: formatInt(semesterTotal.sent), icon: Send, tone: "env" },
+    { label: "Recebidos", value: formatInt(semesterTotal.delivered), icon: MailCheck, tone: "rec" },
+    { label: "Open Rate", value: formatPercent(semesterTotal.openRate), icon: Eye, tone: "or" },
+    { label: "Clicks", value: formatInt(semesterTotal.clicks), icon: MousePointerClick, tone: "clk" },
+    { label: "CTR", value: formatPercent(semesterTotal.ctr), icon: MoveUpRight, tone: "ctr" },
+    { label: "CTOR", value: formatPercent(semesterTotal.ctor), icon: Target, tone: "ctor" },
+    { label: "Bounce", value: formatPercent(semesterTotal.bounce), icon: ShieldCheck, tone: "bnc" },
+    { label: "Opt-out", value: formatPercent(semesterTotal.optout), icon: Percent, tone: "opt" },
+  ];
+  const semesterTableMetrics = [
+    { label: "Comunicados", key: "communications" as const, type: "number" },
+    { label: "Enviados", key: "sent" as const, type: "number" },
+    { label: "Recebidos", key: "delivered" as const, type: "number" },
+    { label: "Open Rate", key: "openRate" as const, type: "rate" },
+    { label: "Clicks", key: "clicks" as const, type: "number" },
+    { label: "CTR", key: "ctr" as const, type: "rate" },
+    { label: "CTOR", key: "ctor" as const, type: "rate" },
+    { label: "Bounce", key: "bounce" as const, type: "rate", inverse: true },
+    { label: "Opt-out", key: "optout" as const, type: "rate", inverse: true },
+  ];
+  const rateSignal = (value: number, benchmark: number, inverse = false) => {
+    if (value === benchmark) return "neutral";
+    const above = value > benchmark;
+    return inverse ? (above ? "negative" : "positive") : above ? "positive" : "negative";
+  };
 
   if (loading) {
     return (
@@ -728,64 +852,8 @@ function App() {
     );
   }
 
-  const kpis = [
-    {
-      label: "Emails enviados",
-      value: formatInt(current.sent),
-      variation: variationLabel(current.sent, previous.sent),
-      status: trendClass(current.sent, previous.sent),
-      icon: Send,
-      tone: "env",
-    },
-    {
-      label: "Emails recebidos",
-      value: formatInt(current.delivered),
-      variation: variationLabel(current.delivered, previous.delivered),
-      status: trendClass(current.delivered, previous.delivered),
-      icon: MailCheck,
-      tone: "rec",
-    },
-    {
-      label: "Taxa de abertura",
-      value: formatPercent(current.openRate),
-      variation: variationLabel(current.openRate, previous.openRate, "pp"),
-      status: trendClass(current.openRate, previous.openRate),
-      icon: Eye,
-      tone: "or",
-    },
-    {
-      label: "Cliques únicos",
-      value: formatInt(current.clicks),
-      variation: variationLabel(current.clicks, previous.clicks),
-      status: trendClass(current.clicks, previous.clicks),
-      icon: MousePointerClick,
-      tone: "clk",
-    },
-    {
-      label: "CTR",
-      value: formatPercent(current.ctr),
-      variation: variationLabel(current.ctr, previous.ctr, "pp"),
-      status: trendClass(current.ctr, previous.ctr),
-      icon: MoveUpRight,
-      tone: "ctr",
-    },
-    {
-      label: "CTOR",
-      value: formatPercent(current.ctor),
-      variation: variationLabel(current.ctor, previous.ctor, "pp"),
-      status: trendClass(current.ctor, previous.ctor),
-      icon: Target,
-      tone: "ctor",
-    },
-    {
-      label: "Bounce rate",
-      value: formatPercent(current.bounce),
-      variation: variationLabel(current.bounce, previous.bounce, "pp"),
-      status: trendClass(current.bounce, previous.bounce, true),
-      icon: ShieldCheck,
-      tone: "bnc",
-    },
-  ];
+  const kpis = buildMonthlyKpis(current, previous);
+  const summaryKpis = buildMonthlyKpis(summaryTotal, summaryPrevious);
 
   const clickChange = diff(compareCurrent.clicks, comparePrevious.clicks);
   const deliveryChange = pp(compareCurrent.delivery, comparePrevious.delivery);
@@ -940,6 +1008,9 @@ function App() {
           <button className={tab === "comparison" ? "active" : ""} onClick={() => setTab("comparison")}>
             <NavIcon name="comparison" /> Mês a mês
           </button>
+          <button className={tab === "semester" ? "active" : ""} onClick={() => setTab("semester")}>
+            <NavIcon name="semester" /> 1º semestre
+          </button>
           <button className={tab === "insights" ? "active" : ""} onClick={() => {
             setComparisonSegment("ALL");
             setTab("insights");
@@ -961,12 +1032,14 @@ function App() {
               {tab === "overview" && "Visão geral"}
               {tab === "summary" && "Resumo mensal"}
               {tab === "comparison" && "Comparativo mensal"}
+              {tab === "semester" && "1º semestre"}
               {tab === "insights" && "Insights gerenciais"}
             </h1>
             <p>
               {tab === "overview" && "Leitura consolidada da operação e seus principais indicadores."}
               {tab === "summary" && "Visão oficial validada, organizada por Trade, Corp e Outros."}
               {tab === "comparison" && "Evolução dos KPIs oficiais entre os períodos selecionados."}
+              {tab === "semester" && "Big numbers e resultados consolidados de 01/01 a 30/06."}
               {tab === "insights" && "Leitura descritiva dos movimentos identificados nos dados oficiais."}
             </p>
           </div>
@@ -984,7 +1057,7 @@ function App() {
                 {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
               </select>
             </label>
-          ) : tab === "comparison" ? (
+          ) : tab === "comparison" || tab === "semester" ? (
             <span className="validated-badge"><i />Dados validados</span>
           ) : (
             <div className="insight-period">
@@ -1150,14 +1223,8 @@ function App() {
               })}
             </section>
 
-            <section className="summary-total-strip">
-              <div><span>Total de comunicados</span><strong>{formatInt(summaryTotal.communications)}</strong></div>
-              <div><span>Emails enviados</span><strong>{formatInt(summaryTotal.sent)}</strong></div>
-              <div><span>Emails recebidos</span><strong>{formatInt(summaryTotal.delivered)}</strong></div>
-              <div><span>Aberturas únicas</span><strong>{formatInt(summaryTotal.opens)}</strong></div>
-              <div><span>Taxa de abertura</span><strong>{formatPercent(summaryTotal.openRate)}</strong></div>
-              <div><span>CTR</span><strong>{formatPercent(summaryTotal.ctr)}</strong></div>
-              <div><span>CTOR</span><strong>{formatPercent(summaryTotal.ctor)}</strong></div>
+            <section className="kpi-grid compact-kpi-grid">
+              {summaryKpis.map((item) => <KpiCard key={item.label} {...item} />)}
             </section>
 
             <article className="panel summary-chart-panel">
@@ -1170,6 +1237,111 @@ function App() {
               </div>
               <SummaryBarChart data={summarySegments} />
             </article>
+          </div>
+        )}
+
+        {tab === "semester" && (
+          <div className="semester-view">
+            <section className="semester-slide">
+              <div className="semester-hero">
+                <div>
+                  <span className="summary-kicker">BIG NUMBERS · 1º SEMESTRE 2026</span>
+                  <h2>Consolidado oficial de Email Marketing</h2>
+                  <p>Período considerado: 01/01 a 30/06. Leitura consolidada sem LATAMERS.</p>
+                </div>
+                <div className="semester-total">
+                  <span>Total de envios</span>
+                  <strong>{formatInt(semesterTotal.sent)}</strong>
+                  <small>{formatInt(semesterTotal.communications)} comunicados no semestre</small>
+                </div>
+              </div>
+
+              <section className="semester-kpi-grid">
+                {semesterMainKpis.map(({ label, value, icon: Icon, tone }) => (
+                  <article className="semester-kpi" key={label}>
+                    <span className={`kpi-icon icon-${tone}`}><Icon aria-hidden="true" /></span>
+                    <div>
+                      <small>{label}</small>
+                      <strong>{value}</strong>
+                    </div>
+                  </article>
+                ))}
+              </section>
+
+              <section className="semester-main-grid">
+                <article className="semester-table-card">
+                  <div className="panel-head">
+                    <SectionTitle
+                      title="Agências e Empresas"
+                      subtitle="Setas comparadas ao total geral do semestre, não a uma meta externa"
+                    />
+                  </div>
+                  <table className="semester-table">
+                    <thead>
+                      <tr>
+                        <th>KPI</th>
+                        <th>Agências <span>Trade</span></th>
+                        <th>Empresas <span>Corp</span></th>
+                        <th>Total geral</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {semesterTableMetrics.map((metric) => (
+                        <tr key={metric.label}>
+                          <td>{metric.label}</td>
+                          {semesterRowsByAudience.map((audience) => {
+                            const value = audience.data[metric.key];
+                            const benchmark = semesterTotal[metric.key];
+                            const signal =
+                              metric.type === "rate"
+                                ? rateSignal(Number(value), Number(benchmark), metric.inverse)
+                                : "neutral";
+                            return (
+                              <td key={audience.label}>
+                                <span className={`semester-value ${signal}`}>
+                                  {metric.type === "rate" ? formatPercent(Number(value)) : formatInt(Number(value))}
+                                  {metric.type === "rate" && <i>{signal === "positive" ? "↑" : signal === "negative" ? "↓" : "→"}</i>}
+                                </span>
+                              </td>
+                            );
+                          })}
+                          <td>{metric.type === "rate" ? formatPercent(Number(semesterTotal[metric.key])) : formatInt(Number(semesterTotal[metric.key]))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </article>
+
+                <aside className="semester-side">
+                  <article>
+                    <span>Participação em envios</span>
+                    {semesterRowsByAudience.map((audience) => (
+                      <div className="semester-share" key={audience.label}>
+                        <div>
+                          <strong>{audience.label}</strong>
+                          <small>{formatPercent(audience.data.sent / Math.max(semesterTotal.sent, 1), 1)}</small>
+                        </div>
+                        <i><b style={{ width: `${(audience.data.sent / Math.max(semesterTotal.sent, 1)) * 100}%` }} /></i>
+                      </div>
+                    ))}
+                    {semesterOthers.sent > 0 && (
+                      <div className="semester-share muted-share">
+                        <div>
+                          <strong>Outros</strong>
+                          <small>{formatPercent(semesterOthers.sent / Math.max(semesterTotal.sent, 1), 1)}</small>
+                        </div>
+                        <i><b style={{ width: `${(semesterOthers.sent / Math.max(semesterTotal.sent, 1)) * 100}%` }} /></i>
+                      </div>
+                    )}
+                  </article>
+                  <article>
+                    <span>Resumo executivo</span>
+                    <p>O consolidado do semestre concentra {formatInt(semesterTotal.sent)} envios, {formatInt(semesterTotal.delivered)} recebidos e {formatInt(semesterTotal.clicks)} cliques únicos.</p>
+                    <p>Open Rate de {formatPercent(semesterTotal.openRate)}, CTR de {formatPercent(semesterTotal.ctr)} e CTOR de {formatPercent(semesterTotal.ctor)} calculados diretamente sobre os volumes oficiais.</p>
+                  </article>
+                </aside>
+              </section>
+            </section>
           </div>
         )}
 

@@ -6,6 +6,7 @@ import {
   BarChart3,
   CalendarRange,
   CheckCircle2,
+  Download,
   Eye,
   Layers3,
   LayoutDashboard,
@@ -19,6 +20,7 @@ import {
   Table2,
   Target,
   TrendingUp,
+  Trophy,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -41,6 +43,26 @@ type RawRow = {
   bounces: number | string;
 };
 
+type CampaignHighlight = {
+  month_key: string;
+  campaign_name: string;
+  subject: string;
+  dashboard_groups: string;
+  operational_segments: string;
+  audience_rows: number;
+  emails_sent: number | string;
+  emails_delivered: number | string;
+  unique_opens: number | string;
+  unique_clicks: number | string;
+  unsubscribes: number | string;
+  bounces: number | string;
+  open_rate: number | string;
+  ctr: number | string;
+  ctor: number | string;
+  bounce_rate: number | string;
+  optout_rate: number | string;
+};
+
 type Metrics = {
   communications: number;
   sent: number;
@@ -61,7 +83,8 @@ type RateKey =
 
 type Rates = Record<RateKey, number>;
 type Enriched = Metrics & Rates;
-type Tab = "overview" | "summary" | "comparison" | "semester" | "insights";
+type Tab = "overview" | "summary" | "comparison" | "semester" | "highlights" | "insights";
+type HighlightMetric = "open_rate" | "ctr" | "ctor" | "bounce_rate";
 
 const EMPTY: Metrics = {
   communications: 0,
@@ -97,6 +120,29 @@ const GROUP_LABELS: Record<string, string> = {
   TRADE: "Trade",
   CORP: "Corp",
   OUTROS: "Outros",
+};
+
+const HIGHLIGHT_METRICS: Record<
+  HighlightMetric,
+  { label: string; description: string; inverse?: boolean }
+> = {
+  open_rate: {
+    label: "Taxa de abertura",
+    description: "Aberturas únicas ÷ emails recebidos",
+  },
+  ctr: {
+    label: "CTR",
+    description: "Cliques únicos ÷ emails enviados",
+  },
+  ctor: {
+    label: "CTOR",
+    description: "Cliques únicos ÷ aberturas únicas",
+  },
+  bounce_rate: {
+    label: "Bounce",
+    description: "Bounces ÷ emails enviados",
+    inverse: true,
+  },
 };
 
 const MONTHS_PT = [
@@ -168,6 +214,84 @@ function formatPercent(value: number, digits = 2) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(value);
+}
+
+function csvEscape(value: string | number) {
+  const text = String(value ?? "");
+  return /[",\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadText(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
+  const content = [headers, ...rows]
+    .map((row) => row.map(csvEscape).join(";"))
+    .join("\n");
+  downloadText(filename, `\uFEFF${content}`, "text/csv;charset=utf-8");
+}
+
+function inlineComputedStyles(source: Element, target: Element) {
+  const styles = window.getComputedStyle(source);
+  Array.from(styles).forEach((property) => {
+    (target as HTMLElement).style.setProperty(
+      property,
+      styles.getPropertyValue(property),
+      styles.getPropertyPriority(property),
+    );
+  });
+  Array.from(source.children).forEach((child, index) => {
+    const targetChild = target.children.item(index);
+    if (targetChild) inlineComputedStyles(child, targetChild);
+  });
+}
+
+async function exportElementPng(elementId: string, filename: string) {
+  const node = document.getElementById(elementId);
+  if (!node) return;
+  const rect = node.getBoundingClientRect();
+  const clone = node.cloneNode(true) as HTMLElement;
+  inlineComputedStyles(node, clone);
+  clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  const html = new XMLSerializer().serializeToString(clone);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(rect.width)}" height="${Math.ceil(rect.height)}">
+      <foreignObject width="100%" height="100%">${html}</foreignObject>
+    </svg>`;
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const image = new Image();
+  image.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(rect.width * 2);
+    canvas.height = Math.ceil(rect.height * 2);
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.scale(2, 2);
+    context.drawImage(image, 0, 0);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((png) => {
+      if (!png) return;
+      const pngUrl = URL.createObjectURL(png);
+      const link = document.createElement("a");
+      link.href = pngUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(pngUrl);
+    });
+  };
+  image.src = url;
 }
 
 function formatMonth(key: string, short = false) {
@@ -292,6 +416,8 @@ function NavIcon({ name }: { name: Tab }) {
         ? CalendarRange
         : name === "semester"
           ? BarChart3
+          : name === "highlights"
+            ? Trophy
           : name === "insights"
             ? Sparkles
             : LayoutDashboard;
@@ -412,6 +538,37 @@ function SectionTitle({
         <h2>{title}</h2>
         {subtitle && <p>{subtitle}</p>}
       </div>
+    </div>
+  );
+}
+
+function ExportActions({
+  onCsv,
+  imageTargetId,
+  imageName,
+}: {
+  onCsv?: () => void;
+  imageTargetId?: string;
+  imageName?: string;
+}) {
+  return (
+    <div className="export-actions">
+      {onCsv && (
+        <button type="button" onClick={onCsv} title="Exportar tabela em CSV">
+          <Download aria-hidden="true" />
+          CSV
+        </button>
+      )}
+      {imageTargetId && imageName && (
+        <button
+          type="button"
+          onClick={() => exportElementPng(imageTargetId, imageName)}
+          title="Exportar gráfico em PNG"
+        >
+          <Download aria-hidden="true" />
+          PNG
+        </button>
+      )}
     </div>
   );
 }
@@ -711,6 +868,10 @@ function App() {
   const [previousMonth, setPreviousMonth] = useState("");
   const [comparisonSegment, setComparisonSegment] = useState("ALL");
   const [trendCount, setTrendCount] = useState(6);
+  const [highlights, setHighlights] = useState<CampaignHighlight[]>([]);
+  const [highlightMonth, setHighlightMonth] = useState("");
+  const [highlightMetric, setHighlightMetric] = useState<HighlightMetric>("open_rate");
+  const [highlightMinSent, setHighlightMinSent] = useState(100);
 
   useEffect(() => {
     async function loadData() {
@@ -719,16 +880,29 @@ function App() {
           `${SUPABASE_URL}/rest/v1/vw_email_monthly_by_segment` +
           "?select=month_ref,month_key,dashboard_group,operational_segment,communications,emails_sent,emails_delivered,unique_opens,total_clicks,unique_clicks,unsubscribes,bounces" +
           "&order=month_ref.asc,dashboard_group.asc,operational_segment.asc";
-        const response = await fetch(endpoint, {
-          headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
-          cache: "no-store",
-        });
+        const highlightsEndpoint =
+          `${SUPABASE_URL}/rest/v1/vw_email_campaign_highlights` +
+          "?select=month_key,campaign_name,subject,dashboard_groups,operational_segments,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,ctor,bounce_rate,optout_rate" +
+          "&order=month_key.asc,campaign_name.asc";
+        const [response, highlightsResponse] = await Promise.all([
+          fetch(endpoint, {
+            headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+            cache: "no-store",
+          }),
+          fetch(highlightsEndpoint, {
+            headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+            cache: "no-store",
+          }),
+        ]);
         if (!response.ok) throw new Error(`Consulta indisponível (${response.status})`);
+        if (!highlightsResponse.ok) throw new Error(`Consulta de destaques indisponível (${highlightsResponse.status})`);
         const payload = (await response.json()) as RawRow[];
+        const highlightsPayload = (await highlightsResponse.json()) as CampaignHighlight[];
         const operational = payload.filter(
           (row) => row.operational_segment.trim().toUpperCase() !== "LATAMERS",
         );
         setRows(operational);
+        setHighlights(highlightsPayload);
         const months = Array.from(new Set(operational.map((row) => row.month_key))).sort();
         const latest = months.at(-1) || "";
         const prior = months.at(-2) || latest;
@@ -736,6 +910,7 @@ function App() {
         setSummaryMonth(latest);
         setCurrentMonth(latest);
         setPreviousMonth(prior);
+        setHighlightMonth(latest);
       } catch (loadError) {
         setError(
           loadError instanceof Error ? loadError.message : "Falha ao carregar os dados.",
@@ -854,6 +1029,74 @@ function App() {
 
   const kpis = buildMonthlyKpis(current, previous);
   const summaryKpis = buildMonthlyKpis(summaryTotal, summaryPrevious);
+  const highlightConfig = HIGHLIGHT_METRICS[highlightMetric];
+  const highlightMonthRows = highlights.filter(
+    (item) =>
+      item.month_key === highlightMonth &&
+      num(item.emails_sent) >= highlightMinSent,
+  );
+  const highlightSorter =
+    (direction: "best" | "worst") => (a: CampaignHighlight, b: CampaignHighlight) => {
+      const av = num(a[highlightMetric]);
+      const bv = num(b[highlightMetric]);
+      if (highlightConfig.inverse) {
+        return direction === "best" ? av - bv : bv - av;
+      }
+      return direction === "best" ? bv - av : av - bv;
+    };
+  const bestHighlights = [...highlightMonthRows]
+    .sort(highlightSorter("best"))
+    .slice(0, 3);
+  const worstHighlights = [...highlightMonthRows]
+    .sort(highlightSorter("worst"))
+    .slice(0, 3);
+  const highlightCsvRows = highlightMonthRows
+    .sort(highlightSorter("best"))
+    .map((item) => [
+      formatMonth(item.month_key),
+      item.campaign_name,
+      item.subject,
+      item.dashboard_groups,
+      item.operational_segments,
+      num(item.emails_sent),
+      num(item.emails_delivered),
+      num(item.unique_opens),
+      num(item.unique_clicks),
+      formatPercent(num(item.open_rate)),
+      formatPercent(num(item.ctr)),
+      formatPercent(num(item.ctor)),
+      formatPercent(num(item.bounce_rate)),
+      formatPercent(num(item.optout_rate)),
+    ]);
+  const overviewSegmentCsvRows = segments.map((item) => [
+    item.label,
+    GROUP_LABELS[item.group] || item.group,
+    item.communications,
+    item.sent,
+    item.delivered,
+    item.opens,
+    item.clicks,
+    formatPercent(item.openRate),
+    formatPercent(item.ctr),
+    formatPercent(item.ctor),
+    formatPercent(item.optout),
+    formatPercent(item.bounce),
+  ]);
+  const summarySegmentCsvRows = summarySegments.map((item) => [
+    formatMonth(summaryMonth),
+    GROUP_LABELS[item.group] || item.group,
+    item.label,
+    item.communications,
+    item.sent,
+    item.delivered,
+    item.opens,
+    item.clicks,
+    formatPercent(item.openRate),
+    formatPercent(item.ctr),
+    formatPercent(item.ctor),
+    formatPercent(item.optout),
+    formatPercent(item.bounce),
+  ]);
 
   const clickChange = diff(compareCurrent.clicks, comparePrevious.clicks);
   const deliveryChange = pp(compareCurrent.delivery, comparePrevious.delivery);
@@ -1011,6 +1254,9 @@ function App() {
           <button className={tab === "semester" ? "active" : ""} onClick={() => setTab("semester")}>
             <NavIcon name="semester" /> 1º semestre
           </button>
+          <button className={tab === "highlights" ? "active" : ""} onClick={() => setTab("highlights")}>
+            <NavIcon name="highlights" /> Destaques
+          </button>
           <button className={tab === "insights" ? "active" : ""} onClick={() => {
             setComparisonSegment("ALL");
             setTab("insights");
@@ -1033,6 +1279,7 @@ function App() {
               {tab === "summary" && "Resumo mensal"}
               {tab === "comparison" && "Comparativo mensal"}
               {tab === "semester" && "1º semestre"}
+              {tab === "highlights" && "Disparos em destaque"}
               {tab === "insights" && "Insights gerenciais"}
             </h1>
             <p>
@@ -1040,6 +1287,7 @@ function App() {
               {tab === "summary" && "Visão oficial validada, organizada por Trade, Corp e Outros."}
               {tab === "comparison" && "Evolução dos KPIs oficiais entre os períodos selecionados."}
               {tab === "semester" && "Big numbers e resultados consolidados de 01/01 a 30/06."}
+              {tab === "highlights" && "Top 3 melhores e piores disparos por métrica, com filtro mínimo de volume."}
               {tab === "insights" && "Leitura descritiva dos movimentos identificados nos dados oficiais."}
             </p>
           </div>
@@ -1057,7 +1305,7 @@ function App() {
                 {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
               </select>
             </label>
-          ) : tab === "comparison" || tab === "semester" ? (
+          ) : tab === "comparison" || tab === "semester" || tab === "highlights" ? (
             <span className="validated-badge"><i />Dados validados</span>
           ) : (
             <div className="insight-period">
@@ -1079,18 +1327,24 @@ function App() {
             </section>
 
             <section className="overview-main-grid">
-              <article className="panel trend-panel">
+              <article className="panel trend-panel" id="overview-trend-export">
                 <div className="panel-head">
                   <SectionTitle title="Evolução das principais métricas" subtitle="Taxas recalculadas a partir dos volumes oficiais" />
-                  <select value={trendCount} onChange={(event) => setTrendCount(Number(event.target.value))}>
-                    <option value={6}>Últimos 6 meses</option>
-                    <option value={12}>Últimos 12 meses</option>
-                  </select>
+                  <div className="panel-actions">
+                    <select value={trendCount} onChange={(event) => setTrendCount(Number(event.target.value))}>
+                      <option value={6}>Últimos 6 meses</option>
+                      <option value={12}>Últimos 12 meses</option>
+                    </select>
+                    <ExportActions imageTargetId="overview-trend-export" imageName={`evolucao-metricas-${selectedMonth}.png`} />
+                  </div>
                 </div>
                 <TrendChart rows={rows} months={trendMonths} />
               </article>
-              <article className="panel composition-panel">
-                <SectionTitle title="Composição dos envios" subtitle={`Distribuição por grupo · ${formatMonth(selectedMonth)}`} />
+              <article className="panel composition-panel" id="overview-composition-export">
+                <div className="panel-head">
+                  <SectionTitle title="Composição dos envios" subtitle={`Distribuição por grupo · ${formatMonth(selectedMonth)}`} />
+                  <ExportActions imageTargetId="overview-composition-export" imageName={`composicao-envios-${selectedMonth}.png`} />
+                </div>
                 <div className="composition-total">
                   <span>Total apresentado</span>
                   <strong>{formatInt(current.sent)}</strong>
@@ -1102,7 +1356,18 @@ function App() {
 
             <section className="detail-grid">
               <article className="panel table-panel">
-                <SectionTitle title="Performance por classificação" subtitle="Ordenado pelo volume de emails enviados" />
+                <div className="panel-head">
+                  <SectionTitle title="Performance por classificação" subtitle="Ordenado pelo volume de emails enviados" />
+                  <ExportActions
+                    onCsv={() =>
+                      exportCsv(
+                        `performance-classificacao-${selectedMonth}.csv`,
+                        ["Classificação", "Grupo", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                        overviewSegmentCsvRows,
+                      )
+                    }
+                  />
+                </div>
                 <div className="table-scroll">
                   <table>
                     <thead><tr><th>Classificação</th><th>Grupo</th><th>Enviados</th><th>Recebidos</th><th>OR</th><th>Cliques</th><th>CTR</th><th>CTOR</th><th>Bounce</th></tr></thead>
@@ -1125,8 +1390,11 @@ function App() {
                   </table>
                 </div>
               </article>
-              <article className="panel ranking-panel">
-                <SectionTitle title="Abertura por classificação" subtitle="Taxa de abertura sobre emails recebidos" />
+              <article className="panel ranking-panel" id="overview-opening-ranking-export">
+                <div className="panel-head">
+                  <SectionTitle title="Abertura por classificação" subtitle="Taxa de abertura sobre emails recebidos" />
+                  <ExportActions imageTargetId="overview-opening-ranking-export" imageName={`ranking-abertura-${selectedMonth}.png`} />
+                </div>
                 <div className="ranking">
                   {[...segments].sort((a, b) => b.openRate - a.openRate).map((item) => (
                     <div key={`${item.group}-${item.label}`}>
@@ -1143,6 +1411,10 @@ function App() {
 
         {tab === "summary" && (
           <div className="summary-view">
+            <section className="kpi-grid compact-kpi-grid">
+              {summaryKpis.map((item) => <KpiCard key={item.label} {...item} />)}
+            </section>
+
             <section className="summary-heading">
               <div>
                 <span className="summary-kicker">RESUMO GERAL COMPLETO</span>
@@ -1164,11 +1436,36 @@ function App() {
                 return (
                   <article className="summary-group-card" key={group}>
                     <div className="summary-group-title">
-                      <span style={{ background: GROUP_COLORS[group] }} />
-                      <div>
-                        <h3>{GROUP_LABELS[group] || group}</h3>
-                        <p>{groupSegments.length} classificações no período</p>
+                      <div className="summary-group-label">
+                        <span style={{ background: GROUP_COLORS[group] }} />
+                        <div>
+                          <h3>{GROUP_LABELS[group] || group}</h3>
+                          <p>{groupSegments.length} classificações no período</p>
+                        </div>
                       </div>
+                      <ExportActions
+                        onCsv={() =>
+                          exportCsv(
+                            `resumo-${group.toLowerCase()}-${summaryMonth}.csv`,
+                            ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                            groupSegments.map((item) => [
+                              formatMonth(summaryMonth),
+                              GROUP_LABELS[item.group] || item.group,
+                              item.label,
+                              item.communications,
+                              item.sent,
+                              item.delivered,
+                              item.opens,
+                              item.clicks,
+                              formatPercent(item.openRate),
+                              formatPercent(item.ctr),
+                              formatPercent(item.ctor),
+                              formatPercent(item.optout),
+                              formatPercent(item.bounce),
+                            ]),
+                          )
+                        }
+                      />
                     </div>
                     <div className="summary-table-scroll">
                       <table className="summary-table">
@@ -1223,17 +1520,26 @@ function App() {
               })}
             </section>
 
-            <section className="kpi-grid compact-kpi-grid">
-              {summaryKpis.map((item) => <KpiCard key={item.label} {...item} />)}
-            </section>
-
-            <article className="panel summary-chart-panel">
+            <article className="panel summary-chart-panel" id="summary-chart-export">
               <div className="panel-head">
                 <SectionTitle
                   title="Emails enviados por classificação"
                   subtitle={`Volume oficial apresentado em ${formatMonth(summaryMonth)}`}
                 />
-                <BarChart3 aria-hidden="true" />
+                <div className="panel-actions">
+                  <ExportActions
+                    onCsv={() =>
+                      exportCsv(
+                        `resumo-classificacoes-${summaryMonth}.csv`,
+                        ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                        summarySegmentCsvRows,
+                      )
+                    }
+                    imageTargetId="summary-chart-export"
+                    imageName={`envios-classificacao-${summaryMonth}.png`}
+                  />
+                  <BarChart3 aria-hidden="true" />
+                </div>
               </div>
               <SummaryBarChart data={summarySegments} />
             </article>
@@ -1435,6 +1741,161 @@ function App() {
             </section>
             <VerticalCompare title="CTR por classificação" subtitle="Cliques únicos sobre emails enviados" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="ctr" currentMonth={currentMonth} previousMonth={previousMonth} />
             <VerticalCompare title="Taxa de abertura por classificação" subtitle="Aberturas únicas sobre emails recebidos" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="openRate" currentMonth={currentMonth} previousMonth={previousMonth} />
+          </div>
+        )}
+
+        {tab === "highlights" && (
+          <div className="highlights-view" id="campaign-highlights-export">
+            <section className="highlight-filterbar">
+              <div className="comparison-filter-fields">
+                <label>
+                  <span>Mês de referência</span>
+                  <select value={highlightMonth} onChange={(event) => setHighlightMonth(event.target.value)}>
+                    {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Ordenar por KPI</span>
+                  <select value={highlightMetric} onChange={(event) => setHighlightMetric(event.target.value as HighlightMetric)}>
+                    {Object.entries(HIGHLIGHT_METRICS).map(([key, value]) => (
+                      <option value={key} key={key}>{value.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Volume mínimo</span>
+                  <select value={highlightMinSent} onChange={(event) => setHighlightMinSent(Number(event.target.value))}>
+                    <option value={0}>Sem mínimo</option>
+                    <option value={50}>50 enviados</option>
+                    <option value={100}>100 enviados</option>
+                    <option value={500}>500 enviados</option>
+                    <option value={1000}>1.000 enviados</option>
+                  </select>
+                </label>
+              </div>
+              <ExportActions
+                onCsv={() =>
+                  exportCsv(
+                    `disparos-destaque-${highlightMetric}-${highlightMonth}.csv`,
+                    ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                    highlightCsvRows,
+                  )
+                }
+                imageTargetId="campaign-highlights-export"
+                imageName={`disparos-destaque-${highlightMetric}-${highlightMonth}.png`}
+              />
+            </section>
+
+            <section className="highlight-hero panel">
+              <div>
+                <span className="summary-kicker">RANKING POR DISPARO</span>
+                <h2>{highlightConfig.label} · {formatMonth(highlightMonth)}</h2>
+                <p>{highlightConfig.description}. Ranking calculado por campanha + assunto, sem LATAMERS.</p>
+              </div>
+              <div className="highlight-volume-note">
+                <strong>{formatInt(highlightMonthRows.length)}</strong>
+                <span>disparos elegíveis</span>
+                <small>mínimo: {formatInt(highlightMinSent)} enviados</small>
+              </div>
+            </section>
+
+            {highlightMonthRows.length === 0 ? (
+              <section className="panel empty-highlight">
+                <Trophy aria-hidden="true" />
+                <h3>Nenhum disparo elegível para o filtro atual</h3>
+                <p>Reduza o volume mínimo ou selecione outro mês para visualizar o Top 3.</p>
+              </section>
+            ) : (
+              <>
+                <section className="highlight-rank-grid">
+                  {[
+                    { title: highlightConfig.inverse ? "Melhores · menor taxa" : "Melhores · maior taxa", tone: "best", items: bestHighlights },
+                    { title: highlightConfig.inverse ? "Piores · maior taxa" : "Piores · menor taxa", tone: "worst", items: worstHighlights },
+                  ].map((board) => (
+                    <article className={`highlight-board ${board.tone}`} key={board.title}>
+                      <div className="highlight-board-head">
+                        <span>{board.tone === "best" ? "TOP 3" : "BOTTOM 3"}</span>
+                        <h3>{board.title}</h3>
+                      </div>
+                      <div className="highlight-list">
+                        {board.items.map((item, index) => (
+                          <div className="highlight-item" key={`${board.tone}-${item.month_key}-${item.campaign_name}-${item.subject}-${index}`}>
+                            <div className="rank-badge">{index + 1}</div>
+                            <div className="highlight-main">
+                              <strong>{item.campaign_name}</strong>
+                              <p>{item.subject}</p>
+                              <div className="highlight-tags">
+                                <span>{item.dashboard_groups}</span>
+                                <span>{item.operational_segments}</span>
+                              </div>
+                              <div className="highlight-meta">
+                                <span>{formatInt(num(item.emails_sent))} enviados</span>
+                                <span>{formatInt(num(item.emails_delivered))} recebidos</span>
+                                <span>{formatInt(num(item.unique_opens))} aberturas</span>
+                                <span>{formatInt(num(item.unique_clicks))} cliques</span>
+                              </div>
+                            </div>
+                            <div className="highlight-rate">
+                              <small>{highlightConfig.label}</small>
+                              <strong>{formatPercent(num(item[highlightMetric]))}</strong>
+                              <span>Bounce {formatPercent(num(item.bounce_rate))}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </section>
+
+                <article className="panel highlight-table-panel">
+                  <div className="panel-head">
+                    <SectionTitle
+                      title="Base dos disparos elegíveis"
+                      subtitle="Tabela real ordenada pelo KPI selecionado"
+                    />
+                    <ExportActions
+                      onCsv={() =>
+                        exportCsv(
+                          `base-disparos-${highlightMetric}-${highlightMonth}.csv`,
+                          ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                          highlightCsvRows,
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Campanha</th>
+                          <th>Classificação</th>
+                          <th>Enviados</th>
+                          <th>Open Rate</th>
+                          <th>CTR</th>
+                          <th>CTOR</th>
+                          <th>Bounce</th>
+                          <th>Opt-out</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...highlightMonthRows].sort(highlightSorter("best")).map((item, index) => (
+                          <tr key={`highlight-row-${item.campaign_name}-${item.subject}-${index}`}>
+                            <td>{item.campaign_name}</td>
+                            <td>{item.operational_segments}</td>
+                            <td>{formatInt(num(item.emails_sent))}</td>
+                            <td>{formatPercent(num(item.open_rate))}</td>
+                            <td>{formatPercent(num(item.ctr))}</td>
+                            <td>{formatPercent(num(item.ctor))}</td>
+                            <td>{formatPercent(num(item.bounce_rate))}</td>
+                            <td>{formatPercent(num(item.optout_rate))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </>
+            )}
           </div>
         )}
 

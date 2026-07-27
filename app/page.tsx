@@ -871,7 +871,6 @@ function App() {
   const [highlights, setHighlights] = useState<CampaignHighlight[]>([]);
   const [highlightMonth, setHighlightMonth] = useState("");
   const [highlightMetric, setHighlightMetric] = useState<HighlightMetric>("open_rate");
-  const [highlightMinSent, setHighlightMinSent] = useState(100);
 
   useEffect(() => {
     async function loadData() {
@@ -1031,9 +1030,7 @@ function App() {
   const summaryKpis = buildMonthlyKpis(summaryTotal, summaryPrevious);
   const highlightConfig = HIGHLIGHT_METRICS[highlightMetric];
   const highlightMonthRows = highlights.filter(
-    (item) =>
-      item.month_key === highlightMonth &&
-      num(item.emails_sent) >= highlightMinSent,
+    (item) => item.month_key === highlightMonth,
   );
   const highlightSorter =
     (direction: "best" | "worst") => (a: CampaignHighlight, b: CampaignHighlight) => {
@@ -1762,16 +1759,6 @@ function App() {
                     ))}
                   </select>
                 </label>
-                <label>
-                  <span>Volume mínimo</span>
-                  <select value={highlightMinSent} onChange={(event) => setHighlightMinSent(Number(event.target.value))}>
-                    <option value={0}>Sem mínimo</option>
-                    <option value={50}>50 enviados</option>
-                    <option value={100}>100 enviados</option>
-                    <option value={500}>500 enviados</option>
-                    <option value={1000}>1.000 enviados</option>
-                  </select>
-                </label>
               </div>
               <ExportActions
                 onCsv={() =>
@@ -1794,8 +1781,8 @@ function App() {
               </div>
               <div className="highlight-volume-note">
                 <strong>{formatInt(highlightMonthRows.length)}</strong>
-                <span>disparos elegíveis</span>
-                <small>mínimo: {formatInt(highlightMinSent)} enviados</small>
+                <span>disparos do mês</span>
+                <small>100% do volume oficial</small>
               </div>
             </section>
 
@@ -1803,7 +1790,7 @@ function App() {
               <section className="panel empty-highlight">
                 <Trophy aria-hidden="true" />
                 <h3>Nenhum disparo elegível para o filtro atual</h3>
-                <p>Reduza o volume mínimo ou selecione outro mês para visualizar o Top 3.</p>
+                <p>Selecione outro mês para visualizar o Top 3.</p>
               </section>
             ) : (
               <>
@@ -1850,7 +1837,7 @@ function App() {
                 <article className="panel highlight-table-panel">
                   <div className="panel-head">
                     <SectionTitle
-                      title="Base dos disparos elegíveis"
+                      title="Base dos disparos do mês"
                       subtitle="Tabela real ordenada pelo KPI selecionado"
                     />
                     <ExportActions

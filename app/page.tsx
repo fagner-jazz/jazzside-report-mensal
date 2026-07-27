@@ -43,6 +43,10 @@ type RawRow = {
   unique_clicks: number | string;
   unsubscribes: number | string;
   bounces: number | string;
+  cta_communications: number | string;
+  cta_emails_sent: number | string;
+  cta_unique_clicks: number | string;
+  qualified_ctr: number | string;
 };
 
 type CampaignHighlight = {
@@ -63,6 +67,11 @@ type CampaignHighlight = {
   ctor: number | string;
   bounce_rate: number | string;
   optout_rate: number | string;
+  has_cta: boolean;
+  cta_communications?: number | string;
+  cta_emails_sent?: number | string;
+  cta_unique_clicks?: number | string;
+  qualified_ctr: number | string;
 };
 
 type CampaignDetail = CampaignHighlight & {
@@ -81,12 +90,16 @@ type Metrics = {
   clicks: number;
   unsubscribes: number;
   bounces: number;
+  ctaCommunications: number;
+  ctaSent: number;
+  ctaClicks: number;
 };
 
 type RateKey =
   | "delivery"
   | "openRate"
   | "ctr"
+  | "qualifiedCtr"
   | "ctor"
   | "optout"
   | "bounce";
@@ -102,11 +115,12 @@ type Tab =
   | "comparison"
   | "semester"
   | "insights";
-type HighlightMetric = "open_rate" | "ctr" | "ctor" | "bounce_rate";
+type HighlightMetric = "open_rate" | "ctr" | "qualified_ctr" | "ctor" | "bounce_rate";
 type CampaignSort =
   | "emails_sent"
   | "open_rate"
   | "ctr"
+  | "qualified_ctr"
   | "ctor"
   | "bounce_rate"
   | "optout_rate";
@@ -119,6 +133,9 @@ const EMPTY: Metrics = {
   clicks: 0,
   unsubscribes: 0,
   bounces: 0,
+  ctaCommunications: 0,
+  ctaSent: 0,
+  ctaClicks: 0,
 };
 
 const GROUP_COLORS: Record<string, string> = {
@@ -159,6 +176,10 @@ const HIGHLIGHT_METRICS: Record<
     label: "CTR",
     description: "Cliques únicos ÷ emails enviados",
   },
+  qualified_ctr: {
+    label: "CTR qualificado",
+    description: "Cliques únicos ÷ enviados apenas nos disparos com CTA",
+  },
   ctor: {
     label: "CTOR",
     description: "Cliques únicos ÷ aberturas únicas",
@@ -185,7 +206,7 @@ const MONTHS_PT = [
   "Dezembro",
 ];
 
-function num(value: number | string) {
+function num(value: number | string | null | undefined) {
   return Number(value) || 0;
 }
 
@@ -198,6 +219,9 @@ function add(target: Metrics, source: Partial<Metrics>): Metrics {
     clicks: target.clicks + (source.clicks || 0),
     unsubscribes: target.unsubscribes + (source.unsubscribes || 0),
     bounces: target.bounces + (source.bounces || 0),
+    ctaCommunications: target.ctaCommunications + (source.ctaCommunications || 0),
+    ctaSent: target.ctaSent + (source.ctaSent || 0),
+    ctaClicks: target.ctaClicks + (source.ctaClicks || 0),
   };
 }
 
@@ -209,6 +233,7 @@ function enrich(metrics: Metrics): Enriched {
     delivery: safe(metrics.delivered, metrics.sent),
     openRate: safe(metrics.opens, metrics.delivered),
     ctr: safe(metrics.clicks, metrics.sent),
+    qualifiedCtr: safe(metrics.ctaClicks, metrics.ctaSent),
     ctor: safe(metrics.clicks, metrics.opens),
     optout: safe(metrics.unsubscribes, metrics.sent),
     bounce: safe(metrics.bounces, metrics.sent),
@@ -224,6 +249,9 @@ function toMetrics(row: RawRow): Metrics {
     clicks: num(row.unique_clicks),
     unsubscribes: num(row.unsubscribes),
     bounces: num(row.bounces),
+    ctaCommunications: num(row.cta_communications),
+    ctaSent: num(row.cta_emails_sent),
+    ctaClicks: num(row.cta_unique_clicks),
   };
 }
 
@@ -447,8 +475,9 @@ function totalForRows(rows: RawRow[]) {
 function campaignMetrics(items: CampaignHighlight[]) {
   return enrich(
     items.reduce(
-      (total, item) =>
-        add(total, {
+      (total, item) => {
+        const hasAggregatedCtaVolumes = item.cta_emails_sent !== undefined;
+        return add(total, {
           communications: 1,
           sent: num(item.emails_sent),
           delivered: num(item.emails_delivered),
@@ -456,7 +485,17 @@ function campaignMetrics(items: CampaignHighlight[]) {
           clicks: num(item.unique_clicks),
           unsubscribes: num(item.unsubscribes),
           bounces: num(item.bounces),
-        }),
+          ctaCommunications: hasAggregatedCtaVolumes
+            ? num(item.cta_communications)
+            : item.has_cta ? 1 : 0,
+          ctaSent: hasAggregatedCtaVolumes
+            ? num(item.cta_emails_sent)
+            : item.has_cta ? num(item.emails_sent) : 0,
+          ctaClicks: hasAggregatedCtaVolumes
+            ? num(item.cta_unique_clicks)
+            : item.has_cta ? num(item.unique_clicks) : 0,
+        });
+      },
       EMPTY,
     ),
   );
@@ -572,6 +611,14 @@ function buildMonthlyKpis(current: Enriched, previous: Enriched) {
       tone: "ctr",
     },
     {
+      label: "CTR qualificado",
+      value: formatPercent(current.qualifiedCtr),
+      variation: variationLabel(current.qualifiedCtr, previous.qualifiedCtr, "pp"),
+      status: trendClass(current.qualifiedCtr, previous.qualifiedCtr),
+      icon: MousePointerClick,
+      tone: "qctr",
+    },
+    {
       label: "CTOR",
       value: formatPercent(current.ctor),
       variation: variationLabel(current.ctor, previous.ctor, "pp"),
@@ -648,6 +695,7 @@ function TrendChart({
   const series = [
     { key: "openRate" as RateKey, label: "Abertura", color: "#7149e9" },
     { key: "ctr" as RateKey, label: "CTR", color: "#f59d20" },
+    { key: "qualifiedCtr" as RateKey, label: "CTR qualificado", color: "#00a88f" },
     { key: "ctor" as RateKey, label: "CTOR", color: "#e8185a" },
     { key: "bounce" as RateKey, label: "Bounce", color: "#2584ff" },
   ];
@@ -967,15 +1015,15 @@ function App() {
       try {
         const endpoint =
           `${SUPABASE_URL}/rest/v1/vw_email_monthly_by_segment` +
-          "?select=month_ref,month_key,dashboard_group,operational_segment,communications,emails_sent,emails_delivered,unique_opens,total_clicks,unique_clicks,unsubscribes,bounces" +
+          "?select=month_ref,month_key,dashboard_group,operational_segment,communications,emails_sent,emails_delivered,unique_opens,total_clicks,unique_clicks,unsubscribes,bounces,cta_communications,cta_emails_sent,cta_unique_clicks,qualified_ctr" +
           "&order=month_ref.asc,dashboard_group.asc,operational_segment.asc";
         const highlightsEndpoint =
           `${SUPABASE_URL}/rest/v1/vw_email_campaign_highlights` +
-          "?select=month_key,campaign_name,subject,dashboard_groups,operational_segments,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,ctor,bounce_rate,optout_rate" +
+          "?select=month_key,campaign_name,subject,dashboard_groups,operational_segments,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,ctor,bounce_rate,optout_rate,has_cta,cta_communications,cta_emails_sent,cta_unique_clicks,qualified_ctr" +
           "&order=month_key.asc,campaign_name.asc";
         const detailsEndpoint =
           `${SUPABASE_URL}/rest/v1/vw_email_dispatch_detail` +
-          "?select=dispatch_id,month_key,campaign_name,subject,campaign_link,send_at,dashboard_groups,operational_segments,source_category,cta,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,ctor,bounce_rate,optout_rate" +
+          "?select=dispatch_id,month_key,campaign_name,subject,campaign_link,send_at,dashboard_groups,operational_segments,source_category,cta,has_cta,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,qualified_ctr,ctor,bounce_rate,optout_rate" +
           "&order=month_key.asc,send_at.asc,campaign_name.asc";
         const [response, highlightsResponse, detailsResponse] = await Promise.all([
           fetch(endpoint, {
@@ -1093,6 +1141,7 @@ function App() {
     { label: "Open Rate", value: formatPercent(semesterTotal.openRate), icon: Eye, tone: "or" },
     { label: "Clicks", value: formatInt(semesterTotal.clicks), icon: MousePointerClick, tone: "clk" },
     { label: "CTR", value: formatPercent(semesterTotal.ctr), icon: MoveUpRight, tone: "ctr" },
+    { label: "CTR qualificado", value: formatPercent(semesterTotal.qualifiedCtr), icon: MousePointerClick, tone: "qctr" },
     { label: "CTOR", value: formatPercent(semesterTotal.ctor), icon: Target, tone: "ctor" },
     { label: "Bounce", value: formatPercent(semesterTotal.bounce), icon: ShieldCheck, tone: "bnc" },
     { label: "Opt-out", value: formatPercent(semesterTotal.optout), icon: Percent, tone: "opt" },
@@ -1104,6 +1153,7 @@ function App() {
     { label: "Open Rate", key: "openRate" as const, type: "rate" },
     { label: "Clicks", key: "clicks" as const, type: "number" },
     { label: "CTR", key: "ctr" as const, type: "rate" },
+    { label: "CTR qualificado", key: "qualifiedCtr" as const, type: "rate" },
     { label: "CTOR", key: "ctor" as const, type: "rate" },
     { label: "Bounce", key: "bounce" as const, type: "rate", inverse: true },
     { label: "Opt-out", key: "optout" as const, type: "rate", inverse: true },
@@ -1141,7 +1191,8 @@ function App() {
   const highlightMonthRows = highlights.filter(
     (item) =>
       item.month_key === highlightMonth &&
-      num(item.emails_sent) >= highlightMinSent,
+      num(item.emails_sent) >= highlightMinSent &&
+      (highlightMetric !== "qualified_ctr" || num(item.cta_emails_sent) > 0),
   );
   const highlightSorter =
     (direction: "best" | "worst") => (a: CampaignHighlight, b: CampaignHighlight) => {
@@ -1179,6 +1230,10 @@ function App() {
       num(item.unique_clicks),
       formatPercent(num(item.open_rate)),
       formatPercent(num(item.ctr)),
+      item.has_cta ? "Sim" : "Não",
+      num(item.cta_emails_sent),
+      num(item.cta_unique_clicks),
+      formatPercent(num(item.qualified_ctr)),
       formatPercent(num(item.ctor)),
       formatPercent(num(item.bounce_rate)),
       formatPercent(num(item.optout_rate)),
@@ -1187,6 +1242,8 @@ function App() {
   const highlightBenchmarkValue =
     highlightMetric === "open_rate"
       ? highlightBenchmark.openRate
+      : highlightMetric === "qualified_ctr"
+        ? highlightBenchmark.qualifiedCtr
       : highlightMetric === "bounce_rate"
         ? highlightBenchmark.bounce
         : highlightBenchmark[highlightMetric];
@@ -1228,6 +1285,8 @@ function App() {
     num(item.unsubscribes),
     formatPercent(num(item.open_rate)),
     formatPercent(num(item.ctr)),
+    item.has_cta ? "Sim" : "Não",
+    formatPercent(num(item.qualified_ctr)),
     formatPercent(num(item.ctor)),
     formatPercent(num(item.bounce_rate)),
     formatPercent(num(item.optout_rate)),
@@ -1282,6 +1341,8 @@ function App() {
     num(item.unique_clicks),
     formatPercent(num(item.open_rate)),
     formatPercent(num(item.ctr)),
+    item.has_cta ? "Sim" : "Não",
+    formatPercent(num(item.qualified_ctr)),
     formatPercent(num(item.ctor)),
     formatPercent(num(item.bounce_rate)),
     formatPercent(num(item.optout_rate)),
@@ -1296,6 +1357,7 @@ function App() {
     item.clicks,
     formatPercent(item.openRate),
     formatPercent(item.ctr),
+    formatPercent(item.qualifiedCtr),
     formatPercent(item.ctor),
     formatPercent(item.optout),
     formatPercent(item.bounce),
@@ -1307,6 +1369,7 @@ function App() {
     ["Taxa de abertura", formatPercent(compareCurrent.openRate), formatPercent(comparePrevious.openRate), variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")],
     ["Cliques únicos", compareCurrent.clicks, comparePrevious.clicks, variationLabel(compareCurrent.clicks, comparePrevious.clicks)],
     ["CTR", formatPercent(compareCurrent.ctr), formatPercent(comparePrevious.ctr), variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")],
+    ["CTR qualificado", formatPercent(compareCurrent.qualifiedCtr), formatPercent(comparePrevious.qualifiedCtr), variationLabel(compareCurrent.qualifiedCtr, comparePrevious.qualifiedCtr, "pp")],
     ["CTOR", formatPercent(compareCurrent.ctor), formatPercent(comparePrevious.ctor), variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")],
     ["Bounce", formatPercent(compareCurrent.bounce), formatPercent(comparePrevious.bounce), variationLabel(compareCurrent.bounce, comparePrevious.bounce, "pp")],
   ];
@@ -1327,6 +1390,7 @@ function App() {
     item.clicks,
     formatPercent(item.openRate),
     formatPercent(item.ctr),
+    formatPercent(item.qualifiedCtr),
     formatPercent(item.ctor),
     formatPercent(item.optout),
     formatPercent(item.bounce),
@@ -1347,6 +1411,7 @@ function App() {
         item.clicks,
         formatPercent(item.openRate),
         formatPercent(item.ctr),
+        formatPercent(item.qualifiedCtr),
         formatPercent(item.ctor),
         formatPercent(item.optout),
         formatPercent(item.bounce),
@@ -1362,6 +1427,7 @@ function App() {
         groupTotal.clicks,
         formatPercent(groupTotal.openRate),
         formatPercent(groupTotal.ctr),
+        formatPercent(groupTotal.qualifiedCtr),
         formatPercent(groupTotal.ctor),
         formatPercent(groupTotal.optout),
         formatPercent(groupTotal.bounce),
@@ -1643,7 +1709,7 @@ function App() {
                     onCsv={() =>
                       exportCsv(
                         `performance-classificacao-${selectedMonth}.csv`,
-                        ["Classificação", "Grupo", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                        ["Classificação", "Grupo", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTR qualificado", "CTOR", "Opt-out", "Bounce"],
                         overviewSegmentCsvRows,
                       )
                     }
@@ -1653,7 +1719,7 @@ function App() {
                 </div>
                 <div className="table-scroll">
                   <table>
-                    <thead><tr><th>Classificação</th><th>Grupo</th><th>Enviados</th><th>Recebidos</th><th>OR</th><th>Cliques</th><th>CTR</th><th>CTOR</th><th>Bounce</th></tr></thead>
+                    <thead><tr><th>Classificação</th><th>Grupo</th><th>Enviados</th><th>Recebidos</th><th>OR</th><th>Cliques</th><th>CTR</th><th>CTR qual.</th><th>CTOR</th><th>Bounce</th></tr></thead>
                     <tbody>
                       {segments.map((item) => (
                         <tr key={`${item.group}-${item.label}`}>
@@ -1664,12 +1730,13 @@ function App() {
                           <td>{formatPercent(item.openRate)}</td>
                           <td>{formatInt(item.clicks)}</td>
                           <td>{formatPercent(item.ctr)}</td>
+                          <td>{formatPercent(item.qualifiedCtr)}</td>
                           <td>{formatPercent(item.ctor)}</td>
                           <td>{formatPercent(item.bounce)}</td>
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot><tr><td>Total geral</td><td>—</td><td>{formatInt(current.sent)}</td><td>{formatInt(current.delivered)}</td><td>{formatPercent(current.openRate)}</td><td>{formatInt(current.clicks)}</td><td>{formatPercent(current.ctr)}</td><td>{formatPercent(current.ctor)}</td><td>{formatPercent(current.bounce)}</td></tr></tfoot>
+                    <tfoot><tr><td>Total geral</td><td>—</td><td>{formatInt(current.sent)}</td><td>{formatInt(current.delivered)}</td><td>{formatPercent(current.openRate)}</td><td>{formatInt(current.clicks)}</td><td>{formatPercent(current.ctr)}</td><td>{formatPercent(current.qualifiedCtr)}</td><td>{formatPercent(current.ctor)}</td><td>{formatPercent(current.bounce)}</td></tr></tfoot>
                   </table>
                 </div>
               </article>
@@ -1712,7 +1779,7 @@ function App() {
                     onCsv={() =>
                       exportCsv(
                         `resumo-mensal-unificado-${summaryMonth}.csv`,
-                        ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                        ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTR qualificado", "CTOR", "Opt-out", "Bounce"],
                         summaryUnifiedCsvRows,
                       )
                     }
@@ -1731,6 +1798,7 @@ function App() {
                         <th>Aberturas únicas</th>
                         <th>Taxa de abertura</th>
                         <th>CTR</th>
+                        <th>CTR qual.</th>
                         <th>CTOR</th>
                         <th>OPT-OUT</th>
                         <th>Bounce</th>
@@ -1744,7 +1812,7 @@ function App() {
                         return (
                           <Fragment key={`${group}-section`}>
                             <tr className="summary-group-row" key={`${group}-header`}>
-                              <td colSpan={10}>
+                              <td colSpan={11}>
                                 <span style={{ background: GROUP_COLORS[group] }} />
                                 {GROUP_LABELS[group] || group}
                                 <small>{groupSegments.length} classificações</small>
@@ -1759,6 +1827,7 @@ function App() {
                                 <td>{formatInt(item.opens)}</td>
                                 <td>{formatPercent(item.openRate)}</td>
                                 <td>{formatPercent(item.ctr)}</td>
+                                <td>{formatPercent(item.qualifiedCtr)}</td>
                                 <td>{formatPercent(item.ctor)}</td>
                                 <td>{formatPercent(item.optout)}</td>
                                 <td>{formatPercent(item.bounce)}</td>
@@ -1772,6 +1841,7 @@ function App() {
                               <td>{formatInt(groupTotal.opens)}</td>
                               <td>{formatPercent(groupTotal.openRate)}</td>
                               <td>{formatPercent(groupTotal.ctr)}</td>
+                              <td>{formatPercent(groupTotal.qualifiedCtr)}</td>
                               <td>{formatPercent(groupTotal.ctor)}</td>
                               <td>{formatPercent(groupTotal.optout)}</td>
                               <td>{formatPercent(groupTotal.bounce)}</td>
@@ -1796,7 +1866,7 @@ function App() {
                     onCsv={() =>
                       exportCsv(
                         `resumo-classificacoes-${summaryMonth}.csv`,
-                        ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                        ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTR qualificado", "CTOR", "Opt-out", "Bounce"],
                         summarySegmentCsvRows,
                       )
                     }
@@ -1925,7 +1995,7 @@ function App() {
                   <article>
                     <span>Resumo executivo</span>
                     <p>O consolidado do semestre concentra {formatInt(semesterTotal.sent)} envios, {formatInt(semesterTotal.delivered)} recebidos e {formatInt(semesterTotal.clicks)} cliques únicos.</p>
-                    <p>Open Rate de {formatPercent(semesterTotal.openRate)}, CTR de {formatPercent(semesterTotal.ctr)} e CTOR de {formatPercent(semesterTotal.ctor)} calculados diretamente sobre os volumes oficiais.</p>
+                    <p>Open Rate de {formatPercent(semesterTotal.openRate)}, CTR total de {formatPercent(semesterTotal.ctr)}, CTR qualificado de {formatPercent(semesterTotal.qualifiedCtr)} e CTOR de {formatPercent(semesterTotal.ctor)}, calculados diretamente sobre os volumes oficiais.</p>
                   </article>
                 </aside>
               </section>
@@ -1980,6 +2050,7 @@ function App() {
                 { label: "Taxa de abertura", a: compareCurrent.openRate, b: comparePrevious.openRate, isRate: true, icon: Eye },
                 { label: "Cliques únicos", a: compareCurrent.clicks, b: comparePrevious.clicks, isRate: false, icon: MousePointerClick },
                 { label: "CTR único", a: compareCurrent.ctr, b: comparePrevious.ctr, isRate: true, icon: MoveUpRight },
+                { label: "CTR qualificado", a: compareCurrent.qualifiedCtr, b: comparePrevious.qualifiedCtr, isRate: true, icon: MousePointerClick },
                 { label: "CTOR", a: compareCurrent.ctor, b: comparePrevious.ctor, isRate: true, icon: Target },
                 { label: "Bounce rate", a: compareCurrent.bounce, b: comparePrevious.bounce, isRate: true, icon: ShieldCheck },
               ].map(({ label, a, b, isRate, icon: Icon }) => (
@@ -2073,7 +2144,7 @@ function App() {
                 onCsv={() =>
                   exportCsv(
                     `disparos-destaque-${highlightMetric}-${highlightMonth}.csv`,
-                    ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                    ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "Possui CTA", "Enviados com CTA", "Cliques com CTA", "CTR qualificado", "CTOR", "Bounce", "Opt-out"],
                     highlightCsvRows,
                   )
                 }
@@ -2132,6 +2203,9 @@ function App() {
                                 <span>{formatInt(num(item.emails_delivered))} recebidos</span>
                                 <span>{formatInt(num(item.unique_opens))} aberturas</span>
                                 <span>{formatInt(num(item.unique_clicks))} cliques</span>
+                                <span className={item.has_cta ? "cta-active" : "cta-inactive"}>
+                                  {item.has_cta ? "Com CTA" : "Sem CTA"}
+                                </span>
                               </div>
                             </div>
                             <div className="highlight-rate">
@@ -2144,6 +2218,7 @@ function App() {
                             <div className="highlight-metric-strip">
                               <span>OR <strong>{formatPercent(num(item.open_rate))}</strong></span>
                               <span>CTR <strong>{formatPercent(num(item.ctr))}</strong></span>
+                              <span>CTR qual. <strong>{item.has_cta ? formatPercent(num(item.qualified_ctr)) : "—"}</strong></span>
                               <span>CTOR <strong>{formatPercent(num(item.ctor))}</strong></span>
                               <span>Bounce <strong>{formatPercent(num(item.bounce_rate))}</strong></span>
                             </div>
@@ -2165,7 +2240,7 @@ function App() {
                       onCsv={() =>
                         exportCsv(
                           `top-bottom-disparos-${highlightMetric}-${highlightMonth}.csv`,
-                          ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                          ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "Possui CTA", "Enviados com CTA", "Cliques com CTA", "CTR qualificado", "CTOR", "Bounce", "Opt-out"],
                           highlightCsvRows,
                         )
                       }
@@ -2180,9 +2255,9 @@ function App() {
                           <th>Campanha</th>
                           <th>Classificação</th>
                           <th>Enviados</th>
-                          <th>Open Rate</th>
-                          <th>CTR</th>
-                          <th>CTOR</th>
+                           <th>Open Rate</th>
+                           <th>CTR total / qual.</th>
+                           <th>CTOR</th>
                           <th>Bounce</th>
                           <th>Opt-out</th>
                         </tr>
@@ -2194,7 +2269,10 @@ function App() {
                             <td>{item.operational_segments}</td>
                             <td>{formatInt(num(item.emails_sent))}</td>
                             <td>{formatPercent(num(item.open_rate))}</td>
-                            <td>{formatPercent(num(item.ctr))}</td>
+                            <td>
+                              <strong>{formatPercent(num(item.ctr))}</strong>
+                              <small>{item.has_cta ? `${formatPercent(num(item.qualified_ctr))} qual.` : "Sem CTA"}</small>
+                            </td>
                             <td>{formatPercent(num(item.ctor))}</td>
                             <td>{formatPercent(num(item.bounce_rate))}</td>
                             <td>{formatPercent(num(item.optout_rate))}</td>
@@ -2252,9 +2330,10 @@ function App() {
                   <span>Ordenar por</span>
                   <select value={campaignSort} onChange={(event) => setCampaignSort(event.target.value as CampaignSort)}>
                     <option value="emails_sent">Volume enviado</option>
-                    <option value="open_rate">Taxa de abertura</option>
-                    <option value="ctr">CTR</option>
-                    <option value="ctor">CTOR</option>
+                     <option value="open_rate">Taxa de abertura</option>
+                     <option value="ctr">CTR</option>
+                     <option value="qualified_ctr">CTR qualificado</option>
+                     <option value="ctor">CTOR</option>
                     <option value="bounce_rate">Bounce</option>
                     <option value="optout_rate">Opt-out</option>
                   </select>
@@ -2282,9 +2361,10 @@ function App() {
                 ["Disparos", formatInt(campaignRows.length), MailSearch],
                 ["Enviados", formatInt(campaignTotals.sent), Send],
                 ["Recebidos", formatInt(campaignTotals.delivered), MailCheck],
-                ["Open Rate", formatPercent(campaignTotals.openRate), Eye],
-                ["CTR", formatPercent(campaignTotals.ctr), MoveUpRight],
-                ["CTOR", formatPercent(campaignTotals.ctor), Target],
+                 ["Open Rate", formatPercent(campaignTotals.openRate), Eye],
+                 ["CTR", formatPercent(campaignTotals.ctr), MoveUpRight],
+                 ["CTR qualificado", formatPercent(campaignTotals.qualifiedCtr), MousePointerClick],
+                 ["CTOR", formatPercent(campaignTotals.ctor), Target],
                 ["Bounce", formatPercent(campaignTotals.bounce), ShieldCheck],
                 ["Opt-out", formatPercent(campaignTotals.optout), Percent],
               ].map(([label, value, Icon], index) => {
@@ -2308,7 +2388,7 @@ function App() {
                   onCsv={() =>
                     exportCsv(
                       `disparos-${campaignMonth}.csv`,
-                      ["Mês", "Campanha", "Assunto", "Data de envio", "Grupo", "Classificação", "Categoria", "CTA", "Link", "Enviados", "Recebidos", "Aberturas", "Cliques", "Bounces", "Opt-outs", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                      ["Mês", "Campanha", "Assunto", "Data de envio", "Grupo", "Classificação", "Categoria", "CTA original", "Link", "Enviados", "Recebidos", "Aberturas", "Cliques", "Bounces", "Opt-outs", "Open Rate", "CTR", "Possui CTA", "CTR qualificado", "CTOR", "Bounce", "Opt-out"],
                       campaignCsvRows,
                     )
                   }
@@ -2331,7 +2411,7 @@ function App() {
                       <th>Volume</th>
                       <th>Engajamento</th>
                       <th>Open Rate</th>
-                      <th>CTR</th>
+                       <th>CTR total / qual.</th>
                       <th>CTOR</th>
                       <th>Rejeição</th>
                     </tr>
@@ -2342,7 +2422,7 @@ function App() {
                         <td>
                           <strong>{item.campaign_name}</strong>
                           <small>{item.subject}</small>
-                          <small>{formatSendDate(item.send_at)}{item.cta ? ` · CTA: ${item.cta}` : ""}</small>
+                          <small>{formatSendDate(item.send_at)} · {item.has_cta ? "Com CTA" : "Sem CTA"}</small>
                         </td>
                         <td>
                           <span className="campaign-pill">{item.operational_segments}</span>
@@ -2351,7 +2431,10 @@ function App() {
                         <td><strong>{formatInt(num(item.emails_sent))}</strong><small>{formatInt(num(item.emails_delivered))} recebidos</small></td>
                         <td><strong>{formatInt(num(item.unique_opens))}</strong><small>{formatInt(num(item.unique_clicks))} cliques</small></td>
                         <td><strong>{formatPercent(num(item.open_rate))}</strong></td>
-                        <td><strong>{formatPercent(num(item.ctr))}</strong></td>
+                        <td>
+                          <strong>{formatPercent(num(item.ctr))}</strong>
+                          <small>{item.has_cta ? `${formatPercent(num(item.qualified_ctr))} qual.` : "Não aplicável"}</small>
+                        </td>
                         <td><strong>{formatPercent(num(item.ctor))}</strong></td>
                         <td>
                           <strong>{formatPercent(num(item.bounce_rate))} bounce</strong>
@@ -2387,7 +2470,7 @@ function App() {
                 onCsv={() =>
                   exportCsv(
                     `classificacao-${classificationSelected}-${classificationMonth}.csv`,
-                    ["Mês", "Classificação", "Campanha", "Assunto", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                    ["Mês", "Classificação", "Campanha", "Assunto", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "Possui CTA", "CTR qualificado", "CTOR", "Bounce", "Opt-out"],
                     classificationCsvRows,
                   )
                 }
@@ -2418,6 +2501,7 @@ function App() {
                 ["Recebidos", formatInt(classificationCurrent.delivered), MailCheck],
                 ["Aberturas", formatInt(classificationCurrent.opens), Eye],
                 ["CTR", formatPercent(classificationCurrent.ctr), MoveUpRight],
+                ["CTR qualificado", formatPercent(classificationCurrent.qualifiedCtr), MousePointerClick],
                 ["CTOR", formatPercent(classificationCurrent.ctor), Target],
                 ["Bounce", formatPercent(classificationCurrent.bounce), ShieldCheck],
                 ["Opt-out", formatPercent(classificationCurrent.optout), Percent],
@@ -2476,7 +2560,7 @@ function App() {
                 <SectionTitle title="Leitura gerencial" subtitle="Síntese automática, baseada somente nos volumes oficiais" />
                 <div className="classification-insight-list">
                   <div><span>01</span><p><strong>Alcance:</strong> {formatInt(classificationCurrent.sent)} enviados e {formatInt(classificationCurrent.delivered)} recebidos, com entrega de {formatPercent(classificationCurrent.delivery)}.</p></div>
-                  <div><span>02</span><p><strong>Engajamento:</strong> {formatInt(classificationCurrent.opens)} aberturas e {formatInt(classificationCurrent.clicks)} cliques; CTR de {formatPercent(classificationCurrent.ctr)} e CTOR de {formatPercent(classificationCurrent.ctor)}.</p></div>
+                  <div><span>02</span><p><strong>Engajamento:</strong> {formatInt(classificationCurrent.opens)} aberturas e {formatInt(classificationCurrent.clicks)} cliques; CTR total de {formatPercent(classificationCurrent.ctr)}, CTR qualificado de {formatPercent(classificationCurrent.qualifiedCtr)} e CTOR de {formatPercent(classificationCurrent.ctor)}.</p></div>
                   <div><span>03</span><p><strong>Pressão da base:</strong> bounce em {formatPercent(classificationCurrent.bounce)} e opt-out em {formatPercent(classificationCurrent.optout)} no período.</p></div>
                 </div>
               </article>
@@ -2493,8 +2577,11 @@ function App() {
                     <span className="rank-badge">{index + 1}</span>
                     <div><strong>{item.campaign_name}</strong><small>{item.subject}</small></div>
                     <p><strong>{formatInt(num(item.emails_sent))}</strong><span>enviados</span></p>
-                    <p><strong>{formatPercent(num(item.open_rate))}</strong><span>Open Rate</span></p>
-                    <p><strong>{formatPercent(num(item.ctr))}</strong><span>CTR</span></p>
+                     <p><strong>{formatPercent(num(item.open_rate))}</strong><span>Open Rate</span></p>
+                     <p>
+                       <strong>{item.has_cta ? formatPercent(num(item.qualified_ctr)) : "—"}</strong>
+                       <span>{item.has_cta ? "CTR qualificado" : "Sem CTA"}</span>
+                     </p>
                   </div>
                 ))}
               </div>
@@ -2578,7 +2665,7 @@ function App() {
                   </div>
                   <div className={ctrChange < 0 && ctorChange < 0 ? "warn" : "good"}>
                     <strong>{ctrChange < 0 && ctorChange < 0 ? "Alerta" : "Avanço"} · ação pós-abertura</strong>
-                    <p>CTR {variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")} e CTOR {variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")}.</p>
+                    <p>CTR total {variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")}, CTR qualificado {variationLabel(compareCurrent.qualifiedCtr, comparePrevious.qualifiedCtr, "pp")} e CTOR {variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")}.</p>
                   </div>
                 </div>
               </aside>
@@ -2656,7 +2743,7 @@ function App() {
 
         <footer>
           <p><strong>Fonte:</strong> base oficial consolidada de Email Marketing · LATAMERS excluído de todos os indicadores apresentados.</p>
-          <p>OR = aberturas únicas ÷ recebidos · CTR = cliques únicos ÷ enviados · CTOR = cliques únicos ÷ aberturas únicas · Bounce = bounces ÷ enviados.</p>
+          <p>OR = aberturas únicas ÷ recebidos · CTR = cliques únicos ÷ enviados · CTR qualificado = cliques únicos dos disparos com CTA ÷ enviados dos disparos com CTA · CTOR = cliques únicos ÷ aberturas únicas · Bounce = bounces ÷ enviados.</p>
         </footer>
       </main>
     </div>

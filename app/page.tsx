@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -1134,6 +1134,43 @@ function App() {
     formatPercent(item.optout),
     formatPercent(item.bounce),
   ]);
+  const summaryUnifiedCsvRows = ["TRADE", "CORP", "OUTROS"].flatMap((group) => {
+    const groupTotal = summaryGroups.find((item) => item.label === group);
+    const groupSegments = summarySegments.filter((item) => item.group === group);
+    if (!groupTotal || groupSegments.length === 0) return [];
+    return [
+      ...groupSegments.map((item) => [
+        formatMonth(summaryMonth),
+        GROUP_LABELS[item.group] || item.group,
+        item.label,
+        item.communications,
+        item.sent,
+        item.delivered,
+        item.opens,
+        item.clicks,
+        formatPercent(item.openRate),
+        formatPercent(item.ctr),
+        formatPercent(item.ctor),
+        formatPercent(item.optout),
+        formatPercent(item.bounce),
+      ]),
+      [
+        formatMonth(summaryMonth),
+        GROUP_LABELS[group] || group,
+        `Subtotal ${GROUP_LABELS[group] || group}`,
+        groupTotal.communications,
+        groupTotal.sent,
+        groupTotal.delivered,
+        groupTotal.opens,
+        groupTotal.clicks,
+        formatPercent(groupTotal.openRate),
+        formatPercent(groupTotal.ctr),
+        formatPercent(groupTotal.ctor),
+        formatPercent(groupTotal.optout),
+        formatPercent(groupTotal.bounce),
+      ],
+    ];
+  });
 
   const clickChange = diff(compareCurrent.clicks, comparePrevious.clicks);
   const deliveryChange = pp(compareCurrent.delivery, comparePrevious.delivery);
@@ -1455,97 +1492,90 @@ function App() {
             </section>
 
             <section className="summary-groups">
-              {["TRADE", "CORP", "OUTROS"].map((group) => {
-                const groupTotal = summaryGroups.find((item) => item.label === group);
-                const groupSegments = summarySegments.filter((item) => item.group === group);
-                if (!groupTotal || groupSegments.length === 0) return null;
-                return (
-                  <article className="summary-group-card" key={group} id={`summary-${group.toLowerCase()}-export`}>
-                    <div className="summary-group-title">
-                      <div className="summary-group-label">
-                        <span style={{ background: GROUP_COLORS[group] }} />
-                        <div>
-                          <h3>{GROUP_LABELS[group] || group}</h3>
-                          <p>{groupSegments.length} classificações no período</p>
-                        </div>
-                      </div>
-                      <ExportActions
-                        onCsv={() =>
-                          exportCsv(
-                            `resumo-${group.toLowerCase()}-${summaryMonth}.csv`,
-                            ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
-                            groupSegments.map((item) => [
-                              formatMonth(summaryMonth),
-                              GROUP_LABELS[item.group] || item.group,
-                              item.label,
-                              item.communications,
-                              item.sent,
-                              item.delivered,
-                              item.opens,
-                              item.clicks,
-                              formatPercent(item.openRate),
-                              formatPercent(item.ctr),
-                              formatPercent(item.ctor),
-                              formatPercent(item.optout),
-                              formatPercent(item.bounce),
-                            ]),
-                          )
-                        }
-                        imageTargetId={`summary-${group.toLowerCase()}-export`}
-                        imageName={`resumo-${group.toLowerCase()}-${summaryMonth}.png`}
-                      />
+              <article className="summary-group-card unified-summary-card" id="summary-monthly-table-export">
+                <div className="summary-group-title">
+                  <div className="summary-group-label">
+                    <span style={{ background: GROUP_COLORS.TRADE }} />
+                    <div>
+                      <h3>Resumo mensal unificado</h3>
+                      <p>Trade, Corp e Outros em uma única tabela, com subtotais por grupo.</p>
                     </div>
-                    <div className="summary-table-scroll">
-                      <table className="summary-table">
-                        <thead>
-                          <tr>
-                            <th>Classificação</th>
-                            <th>Comunicados</th>
-                            <th>Emails enviados</th>
-                            <th>Emails recebidos</th>
-                            <th>Aberturas únicas</th>
-                            <th>Taxa de abertura</th>
-                            <th>CTR</th>
-                            <th>CTOR</th>
-                            <th>OPT-OUT</th>
-                            <th>Bounce</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {groupSegments.map((item) => (
-                            <tr key={`${group}-${item.label}`}>
-                              <td><i style={{ background: segmentColor(item.label) }} />{item.label}</td>
-                              <td>{formatInt(item.communications)}</td>
-                              <td>{formatInt(item.sent)}</td>
-                              <td>{formatInt(item.delivered)}</td>
-                              <td>{formatInt(item.opens)}</td>
-                              <td>{formatPercent(item.openRate)}</td>
-                              <td>{formatPercent(item.ctr)}</td>
-                              <td>{formatPercent(item.ctor)}</td>
-                              <td>{formatPercent(item.optout)}</td>
-                              <td>{formatPercent(item.bounce)}</td>
+                  </div>
+                  <ExportActions
+                    onCsv={() =>
+                      exportCsv(
+                        `resumo-mensal-unificado-${summaryMonth}.csv`,
+                        ["Mês", "Grupo", "Classificação", "Comunicados", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Opt-out", "Bounce"],
+                        summaryUnifiedCsvRows,
+                      )
+                    }
+                    imageTargetId="summary-monthly-table-export"
+                    imageName={`resumo-mensal-unificado-${summaryMonth}.png`}
+                  />
+                </div>
+                <div className="summary-table-scroll">
+                  <table className="summary-table unified-summary-table">
+                    <thead>
+                      <tr>
+                        <th>Grupo / Classificação</th>
+                        <th>Comunicados</th>
+                        <th>Emails enviados</th>
+                        <th>Emails recebidos</th>
+                        <th>Aberturas únicas</th>
+                        <th>Taxa de abertura</th>
+                        <th>CTR</th>
+                        <th>CTOR</th>
+                        <th>OPT-OUT</th>
+                        <th>Bounce</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {["TRADE", "CORP", "OUTROS"].map((group) => {
+                        const groupTotal = summaryGroups.find((item) => item.label === group);
+                        const groupSegments = summarySegments.filter((item) => item.group === group);
+                        if (!groupTotal || groupSegments.length === 0) return null;
+                        return (
+                          <Fragment key={`${group}-section`}>
+                            <tr className="summary-group-row" key={`${group}-header`}>
+                              <td colSpan={10}>
+                                <span style={{ background: GROUP_COLORS[group] }} />
+                                {GROUP_LABELS[group] || group}
+                                <small>{groupSegments.length} classificações</small>
+                              </td>
                             </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr>
-                            <td>Total {GROUP_LABELS[group] || group}</td>
-                            <td>{formatInt(groupTotal.communications)}</td>
-                            <td>{formatInt(groupTotal.sent)}</td>
-                            <td>{formatInt(groupTotal.delivered)}</td>
-                            <td>{formatInt(groupTotal.opens)}</td>
-                            <td>{formatPercent(groupTotal.openRate)}</td>
-                            <td>{formatPercent(groupTotal.ctr)}</td>
-                            <td>{formatPercent(groupTotal.ctor)}</td>
-                            <td>{formatPercent(groupTotal.optout)}</td>
-                            <td>{formatPercent(groupTotal.bounce)}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  </article>
-                );
-              })}
+                            {groupSegments.map((item) => (
+                              <tr key={`${group}-${item.label}`}>
+                                <td><i style={{ background: segmentColor(item.label) }} />{item.label}</td>
+                                <td>{formatInt(item.communications)}</td>
+                                <td>{formatInt(item.sent)}</td>
+                                <td>{formatInt(item.delivered)}</td>
+                                <td>{formatInt(item.opens)}</td>
+                                <td>{formatPercent(item.openRate)}</td>
+                                <td>{formatPercent(item.ctr)}</td>
+                                <td>{formatPercent(item.ctor)}</td>
+                                <td>{formatPercent(item.optout)}</td>
+                                <td>{formatPercent(item.bounce)}</td>
+                              </tr>
+                            ))}
+                            <tr className="summary-subtotal-row" key={`${group}-subtotal`}>
+                              <td>Total {GROUP_LABELS[group] || group}</td>
+                              <td>{formatInt(groupTotal.communications)}</td>
+                              <td>{formatInt(groupTotal.sent)}</td>
+                              <td>{formatInt(groupTotal.delivered)}</td>
+                              <td>{formatInt(groupTotal.opens)}</td>
+                              <td>{formatPercent(groupTotal.openRate)}</td>
+                              <td>{formatPercent(groupTotal.ctr)}</td>
+                              <td>{formatPercent(groupTotal.ctor)}</td>
+                              <td>{formatPercent(groupTotal.optout)}</td>
+                              <td>{formatPercent(groupTotal.bounce)}</td>
+                            </tr>
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
             </section>
 
             <article className="panel summary-chart-panel" id="summary-chart-export">

@@ -8,9 +8,11 @@ import {
   CheckCircle2,
   Download,
   Eye,
+  Filter,
   Layers3,
   LayoutDashboard,
   MailCheck,
+  MailSearch,
   MousePointerClick,
   MoveUpRight,
   Percent,
@@ -63,6 +65,14 @@ type CampaignHighlight = {
   optout_rate: number | string;
 };
 
+type CampaignDetail = CampaignHighlight & {
+  dispatch_id: string;
+  campaign_link: string | null;
+  send_at: string | null;
+  source_category: string | null;
+  cta: string | null;
+};
+
 type Metrics = {
   communications: number;
   sent: number;
@@ -83,8 +93,23 @@ type RateKey =
 
 type Rates = Record<RateKey, number>;
 type Enriched = Metrics & Rates;
-type Tab = "overview" | "summary" | "comparison" | "semester" | "highlights" | "insights";
+type Tab =
+  | "overview"
+  | "summary"
+  | "highlights"
+  | "campaigns"
+  | "classifications"
+  | "comparison"
+  | "semester"
+  | "insights";
 type HighlightMetric = "open_rate" | "ctr" | "ctor" | "bounce_rate";
+type CampaignSort =
+  | "emails_sent"
+  | "open_rate"
+  | "ctr"
+  | "ctor"
+  | "bounce_rate"
+  | "optout_rate";
 
 const EMPTY: Metrics = {
   communications: 0,
@@ -301,6 +326,17 @@ function formatMonth(key: string, short = false) {
     : `${MONTHS_PT[month - 1]}/${year}`;
 }
 
+function formatSendDate(value: string | null) {
+  if (!value) return "Data não informada";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Data não informada";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(parsed);
+}
+
 function monthName(key: string) {
   const month = Number(key.split("-")[1]);
   return MONTHS_PT[month - 1]?.toLocaleLowerCase("pt-BR") || key;
@@ -408,6 +444,31 @@ function totalForRows(rows: RawRow[]) {
   return enrich(rows.reduce((total, row) => add(total, toMetrics(row)), EMPTY));
 }
 
+function campaignMetrics(items: CampaignHighlight[]) {
+  return enrich(
+    items.reduce(
+      (total, item) =>
+        add(total, {
+          communications: 1,
+          sent: num(item.emails_sent),
+          delivered: num(item.emails_delivered),
+          opens: num(item.unique_opens),
+          clicks: num(item.unique_clicks),
+          unsubscribes: num(item.unsubscribes),
+          bounces: num(item.bounces),
+        }),
+      EMPTY,
+    ),
+  );
+}
+
+function campaignHasClassification(item: CampaignHighlight, classification: string) {
+  return item.operational_segments
+    .split(",")
+    .map((value) => segmentLabel(value))
+    .includes(classification);
+}
+
 function NavIcon({ name }: { name: Tab }) {
   const Icon =
     name === "summary"
@@ -418,6 +479,10 @@ function NavIcon({ name }: { name: Tab }) {
           ? BarChart3
           : name === "highlights"
             ? Trophy
+          : name === "campaigns"
+            ? MailSearch
+          : name === "classifications"
+            ? Layers3
           : name === "insights"
             ? Sparkles
             : LayoutDashboard;
@@ -883,9 +948,19 @@ function App() {
   const [comparisonSegment, setComparisonSegment] = useState("ALL");
   const [trendCount, setTrendCount] = useState(6);
   const [highlights, setHighlights] = useState<CampaignHighlight[]>([]);
+  const [campaignDetails, setCampaignDetails] = useState<CampaignDetail[]>([]);
   const [highlightMonth, setHighlightMonth] = useState("");
   const [highlightMetric, setHighlightMetric] = useState<HighlightMetric>("open_rate");
   const [highlightMinSent, setHighlightMinSent] = useState(100);
+  const [campaignMonth, setCampaignMonth] = useState("");
+  const [campaignGroup, setCampaignGroup] = useState("ALL");
+  const [campaignClassification, setCampaignClassification] = useState("ALL");
+  const [campaignMinSent, setCampaignMinSent] = useState(0);
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [campaignSort, setCampaignSort] = useState<CampaignSort>("emails_sent");
+  const [campaignSortDirection, setCampaignSortDirection] = useState<"desc" | "asc">("desc");
+  const [classificationMonth, setClassificationMonth] = useState("");
+  const [classificationSelected, setClassificationSelected] = useState("");
 
   useEffect(() => {
     async function loadData() {
@@ -898,7 +973,11 @@ function App() {
           `${SUPABASE_URL}/rest/v1/vw_email_campaign_highlights` +
           "?select=month_key,campaign_name,subject,dashboard_groups,operational_segments,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,ctor,bounce_rate,optout_rate" +
           "&order=month_key.asc,campaign_name.asc";
-        const [response, highlightsResponse] = await Promise.all([
+        const detailsEndpoint =
+          `${SUPABASE_URL}/rest/v1/vw_email_dispatch_detail` +
+          "?select=dispatch_id,month_key,campaign_name,subject,campaign_link,send_at,dashboard_groups,operational_segments,source_category,cta,audience_rows,emails_sent,emails_delivered,unique_opens,unique_clicks,unsubscribes,bounces,open_rate,ctr,ctor,bounce_rate,optout_rate" +
+          "&order=month_key.asc,send_at.asc,campaign_name.asc";
+        const [response, highlightsResponse, detailsResponse] = await Promise.all([
           fetch(endpoint, {
             headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
             cache: "no-store",
@@ -907,16 +986,23 @@ function App() {
             headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
             cache: "no-store",
           }),
+          fetch(detailsEndpoint, {
+            headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+            cache: "no-store",
+          }),
         ]);
         if (!response.ok) throw new Error(`Consulta indisponível (${response.status})`);
         if (!highlightsResponse.ok) throw new Error(`Consulta de destaques indisponível (${highlightsResponse.status})`);
+        if (!detailsResponse.ok) throw new Error(`Consulta granular indisponível (${detailsResponse.status})`);
         const payload = (await response.json()) as RawRow[];
         const highlightsPayload = (await highlightsResponse.json()) as CampaignHighlight[];
+        const detailsPayload = (await detailsResponse.json()) as CampaignDetail[];
         const operational = payload.filter(
           (row) => row.operational_segment.trim().toUpperCase() !== "LATAMERS",
         );
         setRows(operational);
         setHighlights(highlightsPayload);
+        setCampaignDetails(detailsPayload);
         const months = Array.from(new Set(operational.map((row) => row.month_key))).sort();
         const latest = months.at(-1) || "";
         const prior = months.at(-2) || latest;
@@ -925,6 +1011,14 @@ function App() {
         setCurrentMonth(latest);
         setPreviousMonth(prior);
         setHighlightMonth(latest);
+        setCampaignMonth(latest);
+        setClassificationMonth(latest);
+        const latestSegments = operational
+          .filter((row) => row.month_key === latest)
+          .sort((a, b) => num(b.emails_sent) - num(a.emails_sent));
+        setClassificationSelected(
+          latestSegments.length ? segmentLabel(latestSegments[0].operational_segment) : "",
+        );
       } catch (loadError) {
         setError(
           loadError instanceof Error ? loadError.message : "Falha ao carregar os dados.",
@@ -1089,6 +1183,109 @@ function App() {
       formatPercent(num(item.bounce_rate)),
       formatPercent(num(item.optout_rate)),
     ]);
+  const highlightBenchmark = campaignMetrics(highlightMonthRows);
+  const highlightBenchmarkValue =
+    highlightMetric === "open_rate"
+      ? highlightBenchmark.openRate
+      : highlightMetric === "bounce_rate"
+        ? highlightBenchmark.bounce
+        : highlightBenchmark[highlightMetric];
+
+  const campaignGroups = Array.from(
+    new Set(campaignDetails.flatMap((item) => item.dashboard_groups.split(",").map((value) => value.trim()))),
+  ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const normalizedCampaignSearch = campaignSearch.trim().toLocaleLowerCase("pt-BR");
+  const campaignRows = campaignDetails
+    .filter((item) => item.month_key === campaignMonth)
+    .filter((item) => campaignGroup === "ALL" || item.dashboard_groups.split(",").map((value) => value.trim()).includes(campaignGroup))
+    .filter((item) => campaignClassification === "ALL" || campaignHasClassification(item, campaignClassification))
+    .filter((item) => num(item.emails_sent) >= campaignMinSent)
+    .filter(
+      (item) =>
+        !normalizedCampaignSearch ||
+        `${item.campaign_name} ${item.subject}`.toLocaleLowerCase("pt-BR").includes(normalizedCampaignSearch),
+    )
+    .sort((a, b) => {
+      const delta = num(a[campaignSort]) - num(b[campaignSort]);
+      return campaignSortDirection === "asc" ? delta : -delta;
+    });
+  const campaignTotals = campaignMetrics(campaignRows);
+  const campaignCsvRows = campaignRows.map((item) => [
+    formatMonth(item.month_key),
+    item.campaign_name,
+    item.subject,
+    formatSendDate(item.send_at),
+    item.dashboard_groups,
+    item.operational_segments,
+    item.source_category || "",
+    item.cta || "",
+    item.campaign_link || "",
+    num(item.emails_sent),
+    num(item.emails_delivered),
+    num(item.unique_opens),
+    num(item.unique_clicks),
+    num(item.bounces),
+    num(item.unsubscribes),
+    formatPercent(num(item.open_rate)),
+    formatPercent(num(item.ctr)),
+    formatPercent(num(item.ctor)),
+    formatPercent(num(item.bounce_rate)),
+    formatPercent(num(item.optout_rate)),
+  ]);
+
+  const classificationIndex = months.indexOf(classificationMonth);
+  const classificationPreviousMonth =
+    classificationIndex > 0 ? months[classificationIndex - 1] : classificationMonth;
+  const classificationCurrentRows = rows.filter(
+    (row) =>
+      row.month_key === classificationMonth &&
+      segmentLabel(row.operational_segment) === classificationSelected,
+  );
+  const classificationPreviousRows = rows.filter(
+    (row) =>
+      row.month_key === classificationPreviousMonth &&
+      segmentLabel(row.operational_segment) === classificationSelected,
+  );
+  const classificationCurrent = totalForRows(classificationCurrentRows);
+  const classificationPrevious = totalForRows(classificationPreviousRows);
+  const classificationGroup =
+    classificationCurrentRows[0]?.dashboard_group || classificationPreviousRows[0]?.dashboard_group || "";
+  const classificationCampaigns = campaignDetails
+    .filter(
+      (item) =>
+        item.month_key === classificationMonth &&
+        campaignHasClassification(item, classificationSelected),
+    )
+    .sort((a, b) => num(b.emails_sent) - num(a.emails_sent));
+  const classificationTrend = months.map((month) => {
+    const data = totalForRows(
+      rows.filter(
+        (row) =>
+          row.month_key === month &&
+          segmentLabel(row.operational_segment) === classificationSelected,
+      ),
+    );
+    return { month, ...data };
+  });
+  const classificationTrendMax = Math.max(
+    0.01,
+    ...classificationTrend.map((item) => item.openRate),
+  );
+  const classificationCsvRows = classificationCampaigns.map((item) => [
+    formatMonth(item.month_key),
+    classificationSelected,
+    item.campaign_name,
+    item.subject,
+    num(item.emails_sent),
+    num(item.emails_delivered),
+    num(item.unique_opens),
+    num(item.unique_clicks),
+    formatPercent(num(item.open_rate)),
+    formatPercent(num(item.ctr)),
+    formatPercent(num(item.ctor)),
+    formatPercent(num(item.bounce_rate)),
+    formatPercent(num(item.optout_rate)),
+  ]);
   const overviewSegmentCsvRows = segments.map((item) => [
     item.label,
     GROUP_LABELS[item.group] || item.group,
@@ -1325,6 +1522,12 @@ function App() {
           <button className={tab === "highlights" ? "active" : ""} onClick={() => setTab("highlights")}>
             <NavIcon name="highlights" /> Disparos Top 3
           </button>
+          <button className={tab === "campaigns" ? "active" : ""} onClick={() => setTab("campaigns")}>
+            <NavIcon name="campaigns" /> Disparos
+          </button>
+          <button className={tab === "classifications" ? "active" : ""} onClick={() => setTab("classifications")}>
+            <NavIcon name="classifications" /> Classificações
+          </button>
           <button className={tab === "comparison" ? "active" : ""} onClick={() => setTab("comparison")}>
             <NavIcon name="comparison" /> Mês a mês
           </button>
@@ -1354,6 +1557,8 @@ function App() {
               {tab === "comparison" && "Comparativo mensal"}
               {tab === "semester" && "1º semestre"}
               {tab === "highlights" && "Disparos em destaque"}
+              {tab === "campaigns" && "Análise de disparos"}
+              {tab === "classifications" && "Visão por classificação"}
               {tab === "insights" && "Insights gerenciais"}
             </h1>
             <p>
@@ -1362,6 +1567,8 @@ function App() {
               {tab === "comparison" && "Evolução dos KPIs oficiais entre os períodos selecionados."}
               {tab === "semester" && "Big numbers e resultados consolidados de 01/01 a 30/06."}
               {tab === "highlights" && "Top 3 melhores e piores disparos por métrica, com filtro mínimo de volume."}
+              {tab === "campaigns" && "Explore cada disparo, aplique filtros e investigue os indicadores oficiais."}
+              {tab === "classifications" && "Resultado, evolução e destaques de cada público em uma única leitura gerencial."}
               {tab === "insights" && "Leitura descritiva dos movimentos identificados nos dados oficiais."}
             </p>
           </div>
@@ -1379,7 +1586,7 @@ function App() {
                 {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
               </select>
             </label>
-          ) : tab === "comparison" || tab === "semester" || tab === "highlights" ? (
+          ) : tab === "comparison" || tab === "semester" || tab === "highlights" || tab === "campaigns" || tab === "classifications" ? (
             <span className="validated-badge"><i />Dados validados</span>
           ) : (
             <div className="insight-period">
@@ -1853,6 +2060,8 @@ function App() {
                   <span>Volume mínimo</span>
                   <select value={highlightMinSent} onChange={(event) => setHighlightMinSent(Number(event.target.value))}>
                     <option value={0}>Sem mínimo</option>
+                    <option value={10}>10 enviados</option>
+                    <option value={25}>25 enviados</option>
                     <option value={50}>50 enviados</option>
                     <option value={100}>100 enviados</option>
                     <option value={500}>500 enviados</option>
@@ -1883,6 +2092,7 @@ function App() {
                 <strong>{formatInt(highlightMonthRows.length)}</strong>
                 <span>disparos analisados</span>
                 <small>mínimo: {formatInt(highlightMinSent)} enviados</small>
+                <small>base do KPI: {formatPercent(highlightBenchmarkValue)}</small>
               </div>
             </section>
 
@@ -1905,7 +2115,9 @@ function App() {
                         <h3>{board.title}</h3>
                       </div>
                       <div className="highlight-list">
-                        {board.items.map((item, index) => (
+                        {board.items.map((item, index) => {
+                          const delta = num(item[highlightMetric]) - highlightBenchmarkValue;
+                          return (
                           <div className="highlight-item" key={`${board.tone}-${item.month_key}-${item.campaign_name}-${item.subject}-${index}`}>
                             <div className="rank-badge">{index + 1}</div>
                             <div className="highlight-main">
@@ -1925,10 +2137,19 @@ function App() {
                             <div className="highlight-rate">
                               <small>{highlightConfig.label}</small>
                               <strong>{formatPercent(num(item[highlightMetric]))}</strong>
-                              <span>Bounce {formatPercent(num(item.bounce_rate))}</span>
+                              <span className={delta === 0 ? "neutral" : delta > 0 ? "positive" : "negative"}>
+                                {delta > 0 ? "+" : ""}{(delta * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} p.p. vs. base
+                              </span>
+                            </div>
+                            <div className="highlight-metric-strip">
+                              <span>OR <strong>{formatPercent(num(item.open_rate))}</strong></span>
+                              <span>CTR <strong>{formatPercent(num(item.ctr))}</strong></span>
+                              <span>CTOR <strong>{formatPercent(num(item.ctor))}</strong></span>
+                              <span>Bounce <strong>{formatPercent(num(item.bounce_rate))}</strong></span>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </article>
                   ))}
@@ -1985,6 +2206,302 @@ function App() {
                 </article>
               </>
             )}
+          </div>
+        )}
+
+        {tab === "campaigns" && (
+          <div className="campaigns-view" id="campaign-analysis-export">
+            <section className="campaign-filterbar">
+              <div className="campaign-filter-heading">
+                <Filter aria-hidden="true" />
+                <div>
+                  <strong>Filtros de exploração</strong>
+                  <span>O resumo e a tabela respondem ao recorte selecionado.</span>
+                </div>
+              </div>
+              <div className="campaign-filter-grid">
+                <label>
+                  <span>Mês</span>
+                  <select value={campaignMonth} onChange={(event) => setCampaignMonth(event.target.value)}>
+                    {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Grupo</span>
+                  <select value={campaignGroup} onChange={(event) => setCampaignGroup(event.target.value)}>
+                    <option value="ALL">Todos</option>
+                    {campaignGroups.map((group) => <option value={group} key={group}>{GROUP_LABELS[group] || group}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Classificação</span>
+                  <select value={campaignClassification} onChange={(event) => setCampaignClassification(event.target.value)}>
+                    <option value="ALL">Todas</option>
+                    {classificationOptions.map((classification) => <option value={classification} key={classification}>{classification}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Volume mínimo</span>
+                  <select value={campaignMinSent} onChange={(event) => setCampaignMinSent(Number(event.target.value))}>
+                    {[0, 10, 25, 50, 100, 500, 1000].map((value) => (
+                      <option value={value} key={value}>{value === 0 ? "Sem mínimo" : `${formatInt(value)} enviados`}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Ordenar por</span>
+                  <select value={campaignSort} onChange={(event) => setCampaignSort(event.target.value as CampaignSort)}>
+                    <option value="emails_sent">Volume enviado</option>
+                    <option value="open_rate">Taxa de abertura</option>
+                    <option value="ctr">CTR</option>
+                    <option value="ctor">CTOR</option>
+                    <option value="bounce_rate">Bounce</option>
+                    <option value="optout_rate">Opt-out</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Ordem</span>
+                  <select value={campaignSortDirection} onChange={(event) => setCampaignSortDirection(event.target.value as "desc" | "asc")}>
+                    <option value="desc">Maior para menor</option>
+                    <option value="asc">Menor para maior</option>
+                  </select>
+                </label>
+                <label className="campaign-search">
+                  <span>Buscar campanha ou assunto</span>
+                  <input
+                    value={campaignSearch}
+                    onChange={(event) => setCampaignSearch(event.target.value)}
+                    placeholder="Digite parte do nome ou assunto"
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="campaign-summary-grid">
+              {[
+                ["Disparos", formatInt(campaignRows.length), MailSearch],
+                ["Enviados", formatInt(campaignTotals.sent), Send],
+                ["Recebidos", formatInt(campaignTotals.delivered), MailCheck],
+                ["Open Rate", formatPercent(campaignTotals.openRate), Eye],
+                ["CTR", formatPercent(campaignTotals.ctr), MoveUpRight],
+                ["CTOR", formatPercent(campaignTotals.ctor), Target],
+                ["Bounce", formatPercent(campaignTotals.bounce), ShieldCheck],
+                ["Opt-out", formatPercent(campaignTotals.optout), Percent],
+              ].map(([label, value, Icon], index) => {
+                const CampaignIcon = Icon as LucideIcon;
+                return (
+                  <article className="campaign-summary-card" key={String(label)}>
+                    <span className={`campaign-summary-icon tone-${index}`}><CampaignIcon aria-hidden="true" /></span>
+                    <div><small>{String(label)}</small><strong>{String(value)}</strong></div>
+                  </article>
+                );
+              })}
+            </section>
+
+            <article className="panel campaign-ledger" id="campaign-ledger-export">
+              <div className="panel-head">
+                <SectionTitle
+                  title={`${formatInt(campaignRows.length)} disparos no recorte`}
+                  subtitle="Taxas recalculadas sobre os volumes exibidos; LATAMERS permanece excluído."
+                />
+                <ExportActions
+                  onCsv={() =>
+                    exportCsv(
+                      `disparos-${campaignMonth}.csv`,
+                      ["Mês", "Campanha", "Assunto", "Data de envio", "Grupo", "Classificação", "Categoria", "CTA", "Link", "Enviados", "Recebidos", "Aberturas", "Cliques", "Bounces", "Opt-outs", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                      campaignCsvRows,
+                    )
+                  }
+                  imageTargetId="campaign-ledger-export"
+                  imageName={`disparos-${campaignMonth}.png`}
+                />
+              </div>
+              {campaignRows.length === 0 ? (
+                <div className="campaign-empty">
+                  <MailSearch aria-hidden="true" />
+                  <strong>Nenhum disparo encontrado</strong>
+                  <span>Revise os filtros para ampliar o recorte.</span>
+                </div>
+              ) : (
+                <table className="campaign-table">
+                  <thead>
+                    <tr>
+                      <th>Disparo</th>
+                      <th>Público</th>
+                      <th>Volume</th>
+                      <th>Engajamento</th>
+                      <th>Open Rate</th>
+                      <th>CTR</th>
+                      <th>CTOR</th>
+                      <th>Rejeição</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaignRows.map((item, index) => (
+                      <tr key={`${item.month_key}-${item.campaign_name}-${item.subject}-${index}`}>
+                        <td>
+                          <strong>{item.campaign_name}</strong>
+                          <small>{item.subject}</small>
+                          <small>{formatSendDate(item.send_at)}{item.cta ? ` · CTA: ${item.cta}` : ""}</small>
+                        </td>
+                        <td>
+                          <span className="campaign-pill">{item.operational_segments}</span>
+                          <small>{item.dashboard_groups}</small>
+                        </td>
+                        <td><strong>{formatInt(num(item.emails_sent))}</strong><small>{formatInt(num(item.emails_delivered))} recebidos</small></td>
+                        <td><strong>{formatInt(num(item.unique_opens))}</strong><small>{formatInt(num(item.unique_clicks))} cliques</small></td>
+                        <td><strong>{formatPercent(num(item.open_rate))}</strong></td>
+                        <td><strong>{formatPercent(num(item.ctr))}</strong></td>
+                        <td><strong>{formatPercent(num(item.ctor))}</strong></td>
+                        <td>
+                          <strong>{formatPercent(num(item.bounce_rate))} bounce</strong>
+                          <small>{formatPercent(num(item.optout_rate))} opt-out</small>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </article>
+          </div>
+        )}
+
+        {tab === "classifications" && (
+          <div className="classifications-view" id="classification-analysis-export">
+            <section className="classification-toolbar">
+              <div className="comparison-filter-fields">
+                <label>
+                  <span>Mês de referência</span>
+                  <select value={classificationMonth} onChange={(event) => setClassificationMonth(event.target.value)}>
+                    {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Classificação</span>
+                  <select value={classificationSelected} onChange={(event) => setClassificationSelected(event.target.value)}>
+                    {classificationOptions.map((classification) => <option value={classification} key={classification}>{classification}</option>)}
+                  </select>
+                </label>
+              </div>
+              <ExportActions
+                onCsv={() =>
+                  exportCsv(
+                    `classificacao-${classificationSelected}-${classificationMonth}.csv`,
+                    ["Mês", "Classificação", "Campanha", "Assunto", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
+                    classificationCsvRows,
+                  )
+                }
+                imageTargetId="classification-analysis-export"
+                imageName={`classificacao-${classificationSelected}-${classificationMonth}.png`}
+              />
+            </section>
+
+            <section className="classification-hero panel">
+              <div>
+                <span className="summary-kicker">{GROUP_LABELS[classificationGroup] || classificationGroup || "CLASSIFICAÇÃO"}</span>
+                <h2>{classificationSelected}</h2>
+                <p>Resultado oficial de {formatMonth(classificationMonth)}, comparado ao mês imediatamente anterior disponível.</p>
+              </div>
+              <div className="classification-hero-signal">
+                <small>Taxa de abertura</small>
+                <strong>{formatPercent(classificationCurrent.openRate)}</strong>
+                <span className={trendClass(classificationCurrent.openRate, classificationPrevious.openRate)}>
+                  {variationLabel(classificationCurrent.openRate, classificationPrevious.openRate, "pp")} vs. {formatMonth(classificationPreviousMonth, true)}
+                </span>
+              </div>
+            </section>
+
+            <section className="classification-kpi-grid">
+              {[
+                ["Comunicados", formatInt(classificationCurrent.communications), Layers3],
+                ["Enviados", formatInt(classificationCurrent.sent), Send],
+                ["Recebidos", formatInt(classificationCurrent.delivered), MailCheck],
+                ["Aberturas", formatInt(classificationCurrent.opens), Eye],
+                ["CTR", formatPercent(classificationCurrent.ctr), MoveUpRight],
+                ["CTOR", formatPercent(classificationCurrent.ctor), Target],
+                ["Bounce", formatPercent(classificationCurrent.bounce), ShieldCheck],
+                ["Opt-out", formatPercent(classificationCurrent.optout), Percent],
+              ].map(([label, value, Icon], index) => {
+                const ClassificationIcon = Icon as LucideIcon;
+                return (
+                  <article key={String(label)}>
+                    <span className={`classification-kpi-icon tone-${index}`}><ClassificationIcon aria-hidden="true" /></span>
+                    <small>{String(label)}</small>
+                    <strong>{String(value)}</strong>
+                  </article>
+                );
+              })}
+            </section>
+
+            <section className="classification-main-grid">
+              <article className="panel classification-comparison">
+                <SectionTitle title="Open Rate · evolução mensal" subtitle={`${formatMonth(classificationPreviousMonth)} versus ${formatMonth(classificationMonth)}`} />
+                <div className="or-comparison">
+                  {[
+                    { month: classificationPreviousMonth, value: classificationPrevious.openRate, tone: "previous" },
+                    { month: classificationMonth, value: classificationCurrent.openRate, tone: "current" },
+                  ].map((item) => (
+                    <div className="or-comparison-row" key={item.month}>
+                      <span>{formatMonth(item.month, true)}</span>
+                      <div><i className={item.tone} style={{ width: `${Math.min(100, item.value * 100)}%` }} /></div>
+                      <strong>{formatPercent(item.value)}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="classification-reading">
+                  <span className={trendClass(classificationCurrent.openRate, classificationPrevious.openRate)}>
+                    {classificationCurrent.openRate >= classificationPrevious.openRate ? "↑" : "↓"} {variationLabel(classificationCurrent.openRate, classificationPrevious.openRate, "pp")}
+                  </span>
+                  <p>
+                    A taxa de abertura {classificationCurrent.openRate >= classificationPrevious.openRate ? "avançou" : "recuou"} frente ao mês anterior,
+                    enquanto o volume de envios variou {variationLabel(classificationCurrent.sent, classificationPrevious.sent)}.
+                  </p>
+                </div>
+              </article>
+
+              <article className="panel classification-trend">
+                <SectionTitle title="Histórico de abertura" subtitle="Evolução do Open Rate nos meses disponíveis" />
+                <div className="classification-trend-bars">
+                  {classificationTrend.map((item) => (
+                    <div key={item.month}>
+                      <strong>{formatPercent(item.openRate, 1)}</strong>
+                      <i><b style={{ height: `${Math.max(3, (item.openRate / classificationTrendMax) * 100)}%` }} /></i>
+                      <span>{formatMonth(item.month, true).split("/")[0]}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel classification-insights">
+                <SectionTitle title="Leitura gerencial" subtitle="Síntese automática, baseada somente nos volumes oficiais" />
+                <div className="classification-insight-list">
+                  <div><span>01</span><p><strong>Alcance:</strong> {formatInt(classificationCurrent.sent)} enviados e {formatInt(classificationCurrent.delivered)} recebidos, com entrega de {formatPercent(classificationCurrent.delivery)}.</p></div>
+                  <div><span>02</span><p><strong>Engajamento:</strong> {formatInt(classificationCurrent.opens)} aberturas e {formatInt(classificationCurrent.clicks)} cliques; CTR de {formatPercent(classificationCurrent.ctr)} e CTOR de {formatPercent(classificationCurrent.ctor)}.</p></div>
+                  <div><span>03</span><p><strong>Pressão da base:</strong> bounce em {formatPercent(classificationCurrent.bounce)} e opt-out em {formatPercent(classificationCurrent.optout)} no período.</p></div>
+                </div>
+              </article>
+            </section>
+
+            <article className="panel classification-campaigns">
+              <div className="panel-head">
+                <SectionTitle title="Disparos de maior alcance" subtitle={`Maiores volumes enviados em ${classificationSelected} no mês selecionado`} />
+                <span className="data-scope-note">{formatInt(classificationCampaigns.length)} disparos identificados</span>
+              </div>
+              <div className="classification-campaign-list">
+                {classificationCampaigns.slice(0, 3).map((item, index) => (
+                  <div key={`${item.campaign_name}-${item.subject}-${index}`}>
+                    <span className="rank-badge">{index + 1}</span>
+                    <div><strong>{item.campaign_name}</strong><small>{item.subject}</small></div>
+                    <p><strong>{formatInt(num(item.emails_sent))}</strong><span>enviados</span></p>
+                    <p><strong>{formatPercent(num(item.open_rate))}</strong><span>Open Rate</span></p>
+                    <p><strong>{formatPercent(num(item.ctr))}</strong><span>CTR</span></p>
+                  </div>
+                ))}
+              </div>
+              {classificationCampaigns.length === 0 && (
+                <div className="campaign-empty"><MailSearch aria-hidden="true" /><strong>Sem disparos identificados</strong><span>Não há campanhas vinculadas a esta classificação no período.</span></div>
+              )}
+            </article>
           </div>
         )}
 

@@ -709,12 +709,16 @@ function HorizontalCompare({
   current,
   previous,
   metric,
+  exportId,
+  imageName,
 }: {
   title: string;
   subtitle: string;
   current: ReturnType<typeof groupRows>;
   previous: ReturnType<typeof groupRows>;
   metric: "openRate" | "ctor";
+  exportId?: string;
+  imageName?: string;
 }) {
   const labels = Array.from(
     new Set([...current.map((item) => item.label), ...previous.map((item) => item.label)]),
@@ -727,8 +731,11 @@ function HorizontalCompare({
     ]),
   );
   return (
-    <article className="panel compare-panel">
-      <SectionTitle title={title} subtitle={subtitle} />
+    <article className="panel compare-panel" id={exportId}>
+      <div className="panel-head">
+        <SectionTitle title={title} subtitle={subtitle} />
+        {exportId && imageName && <ExportActions imageTargetId={exportId} imageName={imageName} />}
+      </div>
       <div className="compare-legend">
         <span><i className="dot-current" />Atual</span>
         <span><i className="dot-previous" />Anterior</span>
@@ -797,6 +804,8 @@ function VerticalCompare({
   metric,
   currentMonth,
   previousMonth,
+  exportId,
+  imageName,
 }: {
   title: string;
   subtitle: string;
@@ -805,6 +814,8 @@ function VerticalCompare({
   metric: "openRate" | "ctr";
   currentMonth: string;
   previousMonth: string;
+  exportId?: string;
+  imageName?: string;
 }) {
   const labels = Array.from(
     new Set([...previous.map((item) => item.label), ...current.map((item) => item.label)]),
@@ -817,8 +828,11 @@ function VerticalCompare({
     ]),
   );
   return (
-    <article className="panel vertical-panel">
-      <SectionTitle title={title} subtitle={subtitle} />
+    <article className="panel vertical-panel" id={exportId}>
+      <div className="panel-head">
+        <SectionTitle title={title} subtitle={subtitle} />
+        {exportId && imageName && <ExportActions imageTargetId={exportId} imageName={imageName} />}
+      </div>
       <div className="compare-legend">
         <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
         <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
@@ -871,6 +885,7 @@ function App() {
   const [highlights, setHighlights] = useState<CampaignHighlight[]>([]);
   const [highlightMonth, setHighlightMonth] = useState("");
   const [highlightMetric, setHighlightMetric] = useState<HighlightMetric>("open_rate");
+  const [highlightMinSent, setHighlightMinSent] = useState(100);
 
   useEffect(() => {
     async function loadData() {
@@ -1030,7 +1045,9 @@ function App() {
   const summaryKpis = buildMonthlyKpis(summaryTotal, summaryPrevious);
   const highlightConfig = HIGHLIGHT_METRICS[highlightMetric];
   const highlightMonthRows = highlights.filter(
-    (item) => item.month_key === highlightMonth,
+    (item) =>
+      item.month_key === highlightMonth &&
+      num(item.emails_sent) >= highlightMinSent,
   );
   const highlightSorter =
     (direction: "best" | "worst") => (a: CampaignHighlight, b: CampaignHighlight) => {
@@ -1047,8 +1064,15 @@ function App() {
   const worstHighlights = [...highlightMonthRows]
     .sort(highlightSorter("worst"))
     .slice(0, 3);
-  const highlightCsvRows = highlightMonthRows
-    .sort(highlightSorter("best"))
+  const displayedHighlights = Array.from(
+    new Map(
+      [...bestHighlights, ...worstHighlights].map((item) => [
+        `${item.month_key}|${item.campaign_name}|${item.subject}`,
+        item,
+      ]),
+    ).values(),
+  );
+  const highlightCsvRows = displayedHighlights
     .map((item) => [
       formatMonth(item.month_key),
       item.campaign_name,
@@ -1078,6 +1102,22 @@ function App() {
     formatPercent(item.ctor),
     formatPercent(item.optout),
     formatPercent(item.bounce),
+  ]);
+  const comparisonKpiCsvRows = [
+    ["Comunicações", compareCurrent.communications, comparePrevious.communications, variationLabel(compareCurrent.communications, comparePrevious.communications)],
+    ["Emails enviados", compareCurrent.sent, comparePrevious.sent, variationLabel(compareCurrent.sent, comparePrevious.sent)],
+    ["Emails recebidos", compareCurrent.delivered, comparePrevious.delivered, variationLabel(compareCurrent.delivered, comparePrevious.delivered)],
+    ["Taxa de abertura", formatPercent(compareCurrent.openRate), formatPercent(comparePrevious.openRate), variationLabel(compareCurrent.openRate, comparePrevious.openRate, "pp")],
+    ["Cliques únicos", compareCurrent.clicks, comparePrevious.clicks, variationLabel(compareCurrent.clicks, comparePrevious.clicks)],
+    ["CTR", formatPercent(compareCurrent.ctr), formatPercent(comparePrevious.ctr), variationLabel(compareCurrent.ctr, comparePrevious.ctr, "pp")],
+    ["CTOR", formatPercent(compareCurrent.ctor), formatPercent(comparePrevious.ctor), variationLabel(compareCurrent.ctor, comparePrevious.ctor, "pp")],
+    ["Bounce", formatPercent(compareCurrent.bounce), formatPercent(comparePrevious.bounce), variationLabel(compareCurrent.bounce, comparePrevious.bounce, "pp")],
+  ];
+  const semesterCsvRows = semesterTableMetrics.map((metric) => [
+    metric.label,
+    metric.type === "rate" ? formatPercent(Number(semesterAgencies[metric.key])) : formatInt(Number(semesterAgencies[metric.key])),
+    metric.type === "rate" ? formatPercent(Number(semesterCompanies[metric.key])) : formatInt(Number(semesterCompanies[metric.key])),
+    metric.type === "rate" ? formatPercent(Number(semesterTotal[metric.key])) : formatInt(Number(semesterTotal[metric.key])),
   ]);
   const summarySegmentCsvRows = summarySegments.map((item) => [
     formatMonth(summaryMonth),
@@ -1352,7 +1392,7 @@ function App() {
             </section>
 
             <section className="detail-grid">
-              <article className="panel table-panel">
+              <article className="panel table-panel" id="overview-table-export">
                 <div className="panel-head">
                   <SectionTitle title="Performance por classificação" subtitle="Ordenado pelo volume de emails enviados" />
                   <ExportActions
@@ -1363,6 +1403,8 @@ function App() {
                         overviewSegmentCsvRows,
                       )
                     }
+                    imageTargetId="overview-table-export"
+                    imageName={`performance-classificacao-${selectedMonth}.png`}
                   />
                 </div>
                 <div className="table-scroll">
@@ -1412,26 +1454,13 @@ function App() {
               {summaryKpis.map((item) => <KpiCard key={item.label} {...item} />)}
             </section>
 
-            <section className="summary-heading">
-              <div>
-                <span className="summary-kicker">RESUMO GERAL COMPLETO</span>
-                <h2>{formatMonth(summaryMonth).toUpperCase()}</h2>
-                <p>Estrutura oficial validada por grupo e classificação.</p>
-              </div>
-              <div className="summary-total-card">
-                <span>Total de emails enviados</span>
-                <strong>{formatInt(summaryTotal.sent)}</strong>
-                <small>{formatInt(summaryTotal.communications)} comunicados</small>
-              </div>
-            </section>
-
             <section className="summary-groups">
               {["TRADE", "CORP", "OUTROS"].map((group) => {
                 const groupTotal = summaryGroups.find((item) => item.label === group);
                 const groupSegments = summarySegments.filter((item) => item.group === group);
                 if (!groupTotal || groupSegments.length === 0) return null;
                 return (
-                  <article className="summary-group-card" key={group}>
+                  <article className="summary-group-card" key={group} id={`summary-${group.toLowerCase()}-export`}>
                     <div className="summary-group-title">
                       <div className="summary-group-label">
                         <span style={{ background: GROUP_COLORS[group] }} />
@@ -1462,6 +1491,8 @@ function App() {
                             ]),
                           )
                         }
+                        imageTargetId={`summary-${group.toLowerCase()}-export`}
+                        imageName={`resumo-${group.toLowerCase()}-${summaryMonth}.png`}
                       />
                     </div>
                     <div className="summary-table-scroll">
@@ -1545,17 +1576,20 @@ function App() {
 
         {tab === "semester" && (
           <div className="semester-view">
-            <section className="semester-slide">
+            <section className="semester-slide" id="semester-slide-export">
               <div className="semester-hero">
                 <div>
                   <span className="summary-kicker">BIG NUMBERS · 1º SEMESTRE 2026</span>
                   <h2>Consolidado oficial de Email Marketing</h2>
                   <p>Período considerado: 01/01 a 30/06. Leitura consolidada sem LATAMERS.</p>
                 </div>
-                <div className="semester-total">
-                  <span>Total de envios</span>
-                  <strong>{formatInt(semesterTotal.sent)}</strong>
-                  <small>{formatInt(semesterTotal.communications)} comunicados no semestre</small>
+                <div className="semester-hero-actions">
+                  <ExportActions imageTargetId="semester-slide-export" imageName="consolidado-1-semestre.png" />
+                  <div className="semester-total">
+                    <span>Total de envios</span>
+                    <strong>{formatInt(semesterTotal.sent)}</strong>
+                    <small>{formatInt(semesterTotal.communications)} comunicados no semestre</small>
+                  </div>
                 </div>
               </div>
 
@@ -1572,11 +1606,22 @@ function App() {
               </section>
 
               <section className="semester-main-grid">
-                <article className="semester-table-card">
+                <article className="semester-table-card" id="semester-table-export">
                   <div className="panel-head">
                     <SectionTitle
                       title="Agências e Empresas"
                       subtitle="Setas comparadas ao total geral do semestre, não a uma meta externa"
+                    />
+                    <ExportActions
+                      onCsv={() =>
+                        exportCsv(
+                          "consolidado-1-semestre.csv",
+                          ["KPI", "Agências", "Empresas", "Total geral"],
+                          semesterCsvRows,
+                        )
+                      }
+                      imageTargetId="semester-table-export"
+                      imageName="tabela-consolidado-1-semestre.png"
                     />
                   </div>
                   <table className="semester-table">
@@ -1616,8 +1661,11 @@ function App() {
                 </article>
 
                 <aside className="semester-side">
-                  <article>
-                    <span>Participação em envios</span>
+                  <article id="semester-share-export">
+                    <div className="side-title-row">
+                      <span>Participação em envios</span>
+                      <ExportActions imageTargetId="semester-share-export" imageName="participacao-envios-1-semestre.png" />
+                    </div>
                     {semesterRowsByAudience.map((audience) => (
                       <div className="semester-share" key={audience.label}>
                         <div>
@@ -1676,6 +1724,15 @@ function App() {
                 <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
                 <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
               </div>
+              <ExportActions
+                onCsv={() =>
+                  exportCsv(
+                    `comparativo-kpis-${previousMonth}-${currentMonth}.csv`,
+                    ["KPI", formatMonth(currentMonth), formatMonth(previousMonth), "Variação"],
+                    comparisonKpiCsvRows,
+                  )
+                }
+              />
             </section>
 
             <section className="comparison-kpis">
@@ -1705,12 +1762,15 @@ function App() {
               ))}
             </section>
 
-            <article className="panel volume-panel">
+            <article className="panel volume-panel" id="comparison-volume-export">
               <div className="panel-head">
                 <SectionTitle title="Volume mensal comparado" subtitle="Enviados, recebidos, aberturas e cliques únicos" />
-                <div className="compare-legend">
-                  <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
-                  <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
+                <div className="panel-actions">
+                  <div className="compare-legend">
+                    <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
+                    <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
+                  </div>
+                  <ExportActions imageTargetId="comparison-volume-export" imageName={`volume-comparado-${previousMonth}-${currentMonth}.png`} />
                 </div>
               </div>
               <div className="volume-bars">
@@ -1733,11 +1793,11 @@ function App() {
             </article>
 
             <section className="two-panel-grid">
-              <HorizontalCompare title="Taxa de abertura por grupo" subtitle="Aberturas únicas sobre emails recebidos" current={compareGroupsCurrent} previous={compareGroupsPrevious} metric="openRate" />
-              <HorizontalCompare title="CTOR por grupo" subtitle="Cliques únicos sobre aberturas únicas" current={compareGroupsCurrent} previous={compareGroupsPrevious} metric="ctor" />
+              <HorizontalCompare title="Taxa de abertura por grupo" subtitle="Aberturas únicas sobre emails recebidos" current={compareGroupsCurrent} previous={compareGroupsPrevious} metric="openRate" exportId="comparison-open-group-export" imageName={`abertura-grupo-${previousMonth}-${currentMonth}.png`} />
+              <HorizontalCompare title="CTOR por grupo" subtitle="Cliques únicos sobre aberturas únicas" current={compareGroupsCurrent} previous={compareGroupsPrevious} metric="ctor" exportId="comparison-ctor-group-export" imageName={`ctor-grupo-${previousMonth}-${currentMonth}.png`} />
             </section>
-            <VerticalCompare title="CTR por classificação" subtitle="Cliques únicos sobre emails enviados" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="ctr" currentMonth={currentMonth} previousMonth={previousMonth} />
-            <VerticalCompare title="Taxa de abertura por classificação" subtitle="Aberturas únicas sobre emails recebidos" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="openRate" currentMonth={currentMonth} previousMonth={previousMonth} />
+            <VerticalCompare title="CTR por classificação" subtitle="Cliques únicos sobre emails enviados" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="ctr" currentMonth={currentMonth} previousMonth={previousMonth} exportId="comparison-ctr-segment-export" imageName={`ctr-classificacao-${previousMonth}-${currentMonth}.png`} />
+            <VerticalCompare title="Taxa de abertura por classificação" subtitle="Aberturas únicas sobre emails recebidos" current={compareSegmentsCurrent} previous={compareSegmentsPrevious} metric="openRate" currentMonth={currentMonth} previousMonth={previousMonth} exportId="comparison-open-segment-export" imageName={`abertura-classificacao-${previousMonth}-${currentMonth}.png`} />
           </div>
         )}
 
@@ -1759,6 +1819,16 @@ function App() {
                     ))}
                   </select>
                 </label>
+                <label>
+                  <span>Volume mínimo</span>
+                  <select value={highlightMinSent} onChange={(event) => setHighlightMinSent(Number(event.target.value))}>
+                    <option value={0}>Sem mínimo</option>
+                    <option value={50}>50 enviados</option>
+                    <option value={100}>100 enviados</option>
+                    <option value={500}>500 enviados</option>
+                    <option value={1000}>1.000 enviados</option>
+                  </select>
+                </label>
               </div>
               <ExportActions
                 onCsv={() =>
@@ -1777,12 +1847,12 @@ function App() {
               <div>
                 <span className="summary-kicker">RANKING POR DISPARO</span>
                 <h2>{highlightConfig.label} · {formatMonth(highlightMonth)}</h2>
-                <p>{highlightConfig.description}. Ranking calculado por campanha + assunto, sem LATAMERS.</p>
+                <p>{highlightConfig.description}. Filtro mínimo evita distorções por disparos pequenos; LATAMERS não entra na contagem.</p>
               </div>
               <div className="highlight-volume-note">
                 <strong>{formatInt(highlightMonthRows.length)}</strong>
-                <span>disparos do mês</span>
-                <small>100% do volume oficial</small>
+                <span>disparos analisados</span>
+                <small>mínimo: {formatInt(highlightMinSent)} enviados</small>
               </div>
             </section>
 
@@ -1834,20 +1904,22 @@ function App() {
                   ))}
                 </section>
 
-                <article className="panel highlight-table-panel">
+                <article className="panel highlight-table-panel" id="highlight-table-export">
                   <div className="panel-head">
                     <SectionTitle
-                      title="Base dos disparos do mês"
-                      subtitle="Tabela real ordenada pelo KPI selecionado"
+                      title="Disparos listados no ranking"
+                      subtitle="Somente Top 3 melhores e Top 3 piores exibidos acima"
                     />
                     <ExportActions
                       onCsv={() =>
                         exportCsv(
-                          `base-disparos-${highlightMetric}-${highlightMonth}.csv`,
+                          `top-bottom-disparos-${highlightMetric}-${highlightMonth}.csv`,
                           ["Mês", "Campanha", "Assunto", "Grupo", "Classificação", "Enviados", "Recebidos", "Aberturas", "Cliques", "Open Rate", "CTR", "CTOR", "Bounce", "Opt-out"],
                           highlightCsvRows,
                         )
                       }
+                      imageTargetId="highlight-table-export"
+                      imageName={`top-bottom-disparos-${highlightMetric}-${highlightMonth}.png`}
                     />
                   </div>
                   <div className="table-scroll">
@@ -1865,7 +1937,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...highlightMonthRows].sort(highlightSorter("best")).map((item, index) => (
+                        {displayedHighlights.map((item, index) => (
                           <tr key={`highlight-row-${item.campaign_name}-${item.subject}-${index}`}>
                             <td>{item.campaign_name}</td>
                             <td>{item.operational_segments}</td>
@@ -1888,7 +1960,7 @@ function App() {
 
         {tab === "insights" && (
           <div className="insights-view">
-            <section className="insight-cards">
+            <section className="insight-cards" id="insight-cards-export">
               <article className="insight-card scale">
                 <div className="insight-card-head"><span className="insight-icon"><TrendingUp aria-hidden="true" /></span>Escala</div>
                 <h3>{volumeHeadline}</h3>
@@ -1914,14 +1986,20 @@ function App() {
                 <div className={`insight-signal ${trendClass(compareCurrent.clicks, comparePrevious.clicks)}`}><strong>{variationLabel(compareCurrent.clicks, comparePrevious.clicks)}</strong><span>em cliques únicos</span></div>
               </article>
             </section>
+            <div className="insight-export-row">
+              <ExportActions imageTargetId="insight-cards-export" imageName={`cards-insights-${previousMonth}-${currentMonth}.png`} />
+            </div>
 
             <section className="insight-main-grid">
-              <article className="panel performance-journey">
+              <article className="panel performance-journey" id="insight-journey-export">
                 <div className="panel-head">
                   <SectionTitle title="Jornada de performance" subtitle={`Do envio à ação, ${formatMonth(previousMonth)} versus ${formatMonth(currentMonth)}`} />
-                  <div className="compare-legend">
-                    <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
-                    <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
+                  <div className="panel-actions">
+                    <div className="compare-legend">
+                      <span><i className="dot-current" />{formatMonth(currentMonth)}</span>
+                      <span><i className="dot-previous" />{formatMonth(previousMonth)}</span>
+                    </div>
+                    <ExportActions imageTargetId="insight-journey-export" imageName={`jornada-performance-${previousMonth}-${currentMonth}.png`} />
                   </div>
                 </div>
                 <div className="journey-comparison">
@@ -1937,8 +2015,11 @@ function App() {
                   ))}
                 </div>
               </article>
-              <aside className="panel diagnosis-panel">
-                <SectionTitle title="Diagnóstico do mês" subtitle="Leitura descritiva, sem inferência causal" />
+              <aside className="panel diagnosis-panel" id="insight-diagnosis-export">
+                <div className="panel-head">
+                  <SectionTitle title="Diagnóstico do mês" subtitle="Leitura descritiva, sem inferência causal" />
+                  <ExportActions imageTargetId="insight-diagnosis-export" imageName={`diagnostico-${previousMonth}-${currentMonth}.png`} />
+                </div>
                 <div className="diagnosis-list">
                   <div className={deliveryChange >= 0 ? "good" : "warn"}>
                     <strong>{deliveryChange >= 0 ? "Bom" : "Atenção"} · alcance e entrega</strong>
@@ -1958,7 +2039,24 @@ function App() {
 
             <section className="insight-lower-grid">
               <article className="panel movements-panel">
-                <SectionTitle title="Movimentos observados nos recortes" subtitle="Maiores variações absolutas entre classificações comparáveis" />
+                <div className="panel-head">
+                  <SectionTitle title="Movimentos observados nos recortes" subtitle="Maiores variações absolutas entre classificações comparáveis" />
+                  <ExportActions
+                    onCsv={() =>
+                      exportCsv(
+                        `movimentos-insights-${previousMonth}-${currentMonth}.csv`,
+                        ["Classificação", "KPI", formatMonth(currentMonth), formatMonth(previousMonth), "Variação p.p."],
+                        segmentMovements.map((movement) => [
+                          movement.label,
+                          movement.metric,
+                          formatPercent(movement.current),
+                          formatPercent(movement.previous),
+                          variationLabel(movement.current, movement.previous, "pp"),
+                        ]),
+                      )
+                    }
+                  />
+                </div>
                 <div className="movement-list">
                   {segmentMovements.map((movement) => {
                     const movementMaximum = Math.max(movement.current, movement.previous, 0.0001);
@@ -1980,8 +2078,11 @@ function App() {
                 </div>
               </article>
 
-              <article className="panel questions-panel">
-                <SectionTitle title="Perguntas para decisão" subtitle="Próximas análises sustentadas pelos dados" />
+              <article className="panel questions-panel" id="insight-questions-export">
+                <div className="panel-head">
+                  <SectionTitle title="Perguntas para decisão" subtitle="Próximas análises sustentadas pelos dados" />
+                  <ExportActions imageTargetId="insight-questions-export" imageName={`perguntas-decisao-${previousMonth}-${currentMonth}.png`} />
+                </div>
                 <div className="questions-list">
                   <div className="question">
                     <div><span>01</span><strong>Onde a eficiência de clique mudou?</strong></div>

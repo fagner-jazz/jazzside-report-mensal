@@ -487,6 +487,7 @@ tfoot td { border: 0; background: #f7f8fb; font-weight: 800; }
 .vertical-category > span i { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 3px; border-radius: 50%; }
 
 .insight-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+.insight-export-row { margin: -6px 0 16px; display: flex; justify-content: flex-end; }
 .insight-card { min-height: 215px; padding: 21px; position: relative; overflow: hidden; background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
 .insight-card::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 3px; border-radius: 4px 4px 0 0; background: var(--purple); }
 .insight-card.delivery::after { background: var(--teal); }
@@ -558,6 +559,11 @@ tfoot td { border: 0; background: #f7f8fb; font-weight: 800; }
   gap: 24px;
   margin-bottom: 18px;
 }
+.semester-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
 .semester-hero h2 { margin: 5px 0 5px; font-size: 29px; letter-spacing: -.04em; }
 .semester-hero p { margin: 0; color: var(--muted); font-size: 13px; }
 .semester-total {
@@ -626,6 +632,18 @@ tfoot td { border: 0; background: #f7f8fb; font-weight: 800; }
   font-size: 13px;
   font-weight: 850;
 }
+.side-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.side-title-row > span {
+  color: #4d546a;
+  font-size: 13px;
+  font-weight: 850;
+}
 .semester-share { margin-top: 13px; }
 .semester-share > div { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
 .semester-share small { color: var(--muted); font-weight: 800; }
@@ -669,6 +687,7 @@ footer p { margin: 4px 0; color: #969bab; font-size: 8px; line-height: 1.5; }
   .comparison-filterbar, .highlight-filterbar { align-items: flex-start; flex-direction: column; }
   .comparison-filterbar .compare-legend { padding-bottom: 0; }
   .semester-hero, .highlight-hero { align-items: flex-start; flex-direction: column; }
+  .semester-hero-actions { width: 100%; align-items: flex-start; flex-direction: column; }
   .semester-total { width: 100%; min-width: 0; padding: 16px 0 0; border-top: 1px solid #ddd8f4; border-left: 0; text-align: left; }
   .highlight-volume-note { width: 100%; min-width: 0; padding: 16px 0 0; border-top: 1px solid #ddd8f4; border-left: 0; text-align: left; }
 }

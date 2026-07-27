@@ -1248,14 +1248,14 @@ function App() {
           <button className={tab === "summary" ? "active" : ""} onClick={() => setTab("summary")}>
             <NavIcon name="summary" /> Resumo mensal
           </button>
+          <button className={tab === "highlights" ? "active" : ""} onClick={() => setTab("highlights")}>
+            <NavIcon name="highlights" /> Disparos Top 3
+          </button>
           <button className={tab === "comparison" ? "active" : ""} onClick={() => setTab("comparison")}>
             <NavIcon name="comparison" /> Mês a mês
           </button>
           <button className={tab === "semester" ? "active" : ""} onClick={() => setTab("semester")}>
             <NavIcon name="semester" /> 1º semestre
-          </button>
-          <button className={tab === "highlights" ? "active" : ""} onClick={() => setTab("highlights")}>
-            <NavIcon name="highlights" /> Destaques
           </button>
           <button className={tab === "insights" ? "active" : ""} onClick={() => {
             setComparisonSegment("ALL");

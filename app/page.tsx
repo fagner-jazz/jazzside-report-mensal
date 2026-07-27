@@ -6,8 +6,10 @@ import {
   BarChart3,
   CalendarRange,
   CheckCircle2,
+  ClipboardCheck,
   Download,
   Eye,
+  FileSpreadsheet,
   Filter,
   Layers3,
   LayoutDashboard,
@@ -23,6 +25,7 @@ import {
   Target,
   TrendingUp,
   Trophy,
+  UploadCloud,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -114,6 +117,7 @@ type Tab =
   | "classifications"
   | "comparison"
   | "semester"
+  | "load"
   | "insights";
 type HighlightMetric = "open_rate" | "ctr" | "qualified_ctr" | "ctor" | "bounce_rate";
 type CampaignSort =
@@ -522,6 +526,8 @@ function NavIcon({ name }: { name: Tab }) {
             ? MailSearch
           : name === "classifications"
             ? Layers3
+          : name === "load"
+            ? UploadCloud
           : name === "insights"
             ? Sparkles
             : LayoutDashboard;
@@ -692,26 +698,111 @@ function TrendChart({
   rows: RawRow[];
   months: string[];
 }) {
-  const series = [
+  const openingSeries = [
     { key: "openRate" as RateKey, label: "Abertura", color: "#7149e9" },
+  ];
+  const efficiencySeries = [
     { key: "ctr" as RateKey, label: "CTR", color: "#f59d20" },
     { key: "qualifiedCtr" as RateKey, label: "CTR qualificado", color: "#00a88f" },
     { key: "ctor" as RateKey, label: "CTOR", color: "#e8185a" },
     { key: "bounce" as RateKey, label: "Bounce", color: "#2584ff" },
   ];
+  const series = [...openingSeries, ...efficiencySeries];
   const values = months.map((month) => totalForMonth(rows, month));
-  const max = Math.max(
-    0.4,
-    ...values.flatMap((item) => series.map((serie) => item[serie.key])),
-  );
   const width = 840;
-  const height = 280;
-  const pad = { left: 44, right: 18, top: 22, bottom: 38 };
+  const height = 352;
+  const openingHeight = 140;
+  const efficiencyTop = 176;
+  const efficiencyHeight = 118;
+  const pad = { left: 44, right: 72, top: 18, bottom: 44 };
   const innerW = width - pad.left - pad.right;
-  const innerH = height - pad.top - pad.bottom;
   const x = (index: number) =>
     pad.left + (months.length === 1 ? innerW / 2 : (index / (months.length - 1)) * innerW);
-  const y = (value: number) => pad.top + innerH - (value / max) * innerH;
+  const openingMax = Math.max(0.4, ...values.map((item) => item.openRate)) * 1.08;
+  const efficiencyMax =
+    Math.max(0.04, ...values.flatMap((item) => efficiencySeries.map((serie) => item[serie.key]))) *
+    1.18;
+  const openingY = (value: number) =>
+    pad.top + openingHeight - (value / openingMax) * openingHeight;
+  const efficiencyY = (value: number) =>
+    efficiencyTop + efficiencyHeight - (value / efficiencyMax) * efficiencyHeight;
+  const renderGrid = (
+    max: number,
+    top: number,
+    chartHeight: number,
+    label: string,
+  ) => (
+    <>
+      <text x={pad.left} y={top - 7} className="chart-lane-label">
+        {label}
+      </text>
+      {[0, 0.5, 1].map((ratio) => {
+        const yy = top + chartHeight * (1 - ratio);
+        return (
+          <g key={`${label}-${ratio}`}>
+            <line x1={pad.left} y1={yy} x2={width - pad.right} y2={yy} className="grid-line" />
+            <text x={pad.left - 8} y={yy + 4} textAnchor="end" className="axis-label">
+              {formatPercent(max * ratio, ratio === 0 ? 0 : 1)}
+            </text>
+          </g>
+        );
+      })}
+    </>
+  );
+  const renderSeries = (
+    items: typeof series,
+    yScale: (value: number) => number,
+    valueOffset = 0,
+  ) =>
+    items.map((serie, serieIndex) => {
+      const points = values
+        .map((item, index) => `${x(index)},${yScale(item[serie.key])}`)
+        .join(" ");
+      const last = values.at(-1);
+      const lastX = x(values.length - 1);
+      const lastY = last ? yScale(last[serie.key]) : 0;
+      return (
+        <g key={serie.key}>
+          <polyline
+            points={points}
+            fill="none"
+            stroke={serie.color}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {values.map((item, index) => (
+            <circle
+              key={months[index]}
+              cx={x(index)}
+              cy={yScale(item[serie.key])}
+              r="4"
+              fill="#fff"
+              stroke={serie.color}
+              strokeWidth="3"
+            >
+              <title>
+                {serie.label} - {formatMonth(months[index])}: {formatPercent(item[serie.key])}
+                {"\n"}Enviados: {formatInt(item.sent)}
+                {"\n"}Recebidos: {formatInt(item.delivered)}
+                {"\n"}Aberturas: {formatInt(item.opens)}
+                {"\n"}Cliques: {formatInt(item.clicks)}
+              </title>
+            </circle>
+          ))}
+          {last && (
+            <text
+              x={lastX + 10}
+              y={lastY + valueOffset + serieIndex * 13}
+              className="line-end-label"
+              fill={serie.color}
+            >
+              {formatPercent(last[serie.key])}
+            </text>
+          )}
+        </g>
+      );
+    });
 
   return (
     <div className="chart-shell">
@@ -724,17 +815,8 @@ function TrendChart({
       </div>
       <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img">
         <title>Evolução mensal das principais taxas</title>
-        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-          const yy = pad.top + innerH * (1 - ratio);
-          return (
-            <g key={ratio}>
-              <line x1={pad.left} y1={yy} x2={width - pad.right} y2={yy} className="grid-line" />
-              <text x={pad.left - 8} y={yy + 4} textAnchor="end" className="axis-label">
-                {formatPercent(max * ratio, 0)}
-              </text>
-            </g>
-          );
-        })}
+        {renderGrid(openingMax, pad.top, openingHeight, "Abertura")}
+        {renderGrid(efficiencyMax, efficiencyTop, efficiencyHeight, "Eficiência")}
         {months.map((month, index) => (
           <text
             key={month}
@@ -746,7 +828,10 @@ function TrendChart({
             {formatMonth(month, true)}
           </text>
         ))}
-        {series.map((serie) => {
+        <line x1={pad.left} y1={158} x2={width - pad.right} y2={158} className="lane-divider" />
+        {renderSeries(openingSeries, openingY)}
+        {renderSeries(efficiencySeries, efficiencyY, -12)}
+        {false && series.map((serie) => {
           const points = values
             .map((item, index) => `${x(index)},${y(item[serie.key])}`)
             .join(" ");
@@ -780,6 +865,15 @@ function TrendChart({
           );
         })}
       </svg>
+      <div className="trend-volume-strip" aria-label="Volume oficial por mês">
+        {values.map((item, index) => (
+          <div key={months[index]}>
+            <span>{formatMonth(months[index], true)}</span>
+            <strong>{formatInt(item.sent)}</strong>
+            <small>envios</small>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1600,6 +1694,9 @@ function App() {
           <button className={tab === "semester" ? "active" : ""} onClick={() => setTab("semester")}>
             <NavIcon name="semester" /> 1º semestre
           </button>
+          <button className={tab === "load" ? "active" : ""} onClick={() => setTab("load")}>
+            <NavIcon name="load" /> Carga
+          </button>
           <button className={tab === "insights" ? "active" : ""} onClick={() => {
             setComparisonSegment("ALL");
             setTab("insights");
@@ -1625,6 +1722,7 @@ function App() {
               {tab === "highlights" && "Disparos em destaque"}
               {tab === "campaigns" && "Análise de disparos"}
               {tab === "classifications" && "Visão por classificação"}
+              {tab === "load" && "Carga e validação"}
               {tab === "insights" && "Insights gerenciais"}
             </h1>
             <p>
@@ -1635,6 +1733,7 @@ function App() {
               {tab === "highlights" && "Top 3 melhores e piores disparos por métrica, com filtro mínimo de volume."}
               {tab === "campaigns" && "Explore cada disparo, aplique filtros e investigue os indicadores oficiais."}
               {tab === "classifications" && "Resultado, evolução e destaques de cada público em uma única leitura gerencial."}
+              {tab === "load" && "Ambiente operacional para preparar cargas mensais com pré-validação antes de publicar no painel."}
               {tab === "insights" && "Leitura descritiva dos movimentos identificados nos dados oficiais."}
             </p>
           </div>
@@ -1652,7 +1751,7 @@ function App() {
                 {months.map((month) => <option value={month} key={month}>{formatMonth(month)}</option>)}
               </select>
             </label>
-          ) : tab === "comparison" || tab === "semester" || tab === "highlights" || tab === "campaigns" || tab === "classifications" ? (
+          ) : tab === "comparison" || tab === "semester" || tab === "highlights" || tab === "campaigns" || tab === "classifications" || tab === "load" ? (
             <span className="validated-badge"><i />Dados validados</span>
           ) : (
             <div className="insight-period">
@@ -2589,6 +2688,81 @@ function App() {
                 <div className="campaign-empty"><MailSearch aria-hidden="true" /><strong>Sem disparos identificados</strong><span>Não há campanhas vinculadas a esta classificação no período.</span></div>
               )}
             </article>
+          </div>
+        )}
+
+        {tab === "load" && (
+          <div className="load-view">
+            <section className="load-hero panel">
+              <div>
+                <span className="summary-kicker">GOVERNANÇA DE DADOS</span>
+                <h2>Carga mensal liberada para operação</h2>
+                <p>
+                  Esta área ficou fora da versão anterior porque a carga altera a base oficial.
+                  Editor/admin no painel não libera, por si só, a gravação segura no Supabase.
+                </p>
+              </div>
+              <div className="load-status-card">
+                <CheckCircle2 aria-hidden="true" />
+                <strong>Acesso visual liberado</strong>
+                <span>Próximo passo: endpoint seguro de validação e aprovação.</span>
+              </div>
+            </section>
+
+            <section className="load-grid">
+              {[
+                {
+                  title: "1. Receber arquivo",
+                  text: "Upload da planilha oficial ou conexão com Google Planilha, sempre preservando a aba mensal validada.",
+                  icon: FileSpreadsheet,
+                },
+                {
+                  title: "2. Gerar extrato",
+                  text: "Resumo por grupo, classificação, CTA, volumes e KPIs recalculados a partir da base carregada.",
+                  icon: ClipboardCheck,
+                },
+                {
+                  title: "3. Pré-validar",
+                  text: "Comparação contra histórico: volume, abertura, CTR, CTR qualificado, CTOR, bounce e opt-out.",
+                  icon: AlertTriangle,
+                },
+                {
+                  title: "4. Aprovar carga",
+                  text: "Somente após sua aprovação os dados entram na base oficial e aparecem no painel.",
+                  icon: UploadCloud,
+                },
+              ].map(({ title, text, icon: Icon }) => (
+                <article className="load-step-card" key={title}>
+                  <span><Icon aria-hidden="true" /></span>
+                  <strong>{title}</strong>
+                  <p>{text}</p>
+                </article>
+              ))}
+            </section>
+
+            <section className="panel load-control-panel">
+              <div className="panel-head">
+                <SectionTitle
+                  title="Pré-validação da próxima carga"
+                  subtitle="Nenhum dado é gravado nesta etapa; a tela abaixo é o fluxo seguro que será conectado."
+                />
+                <span className="validated-badge"><i />Base atual protegida</span>
+              </div>
+              <div className="load-dropzone">
+                <UploadCloud aria-hidden="true" />
+                <strong>Upload operacional em preparação</strong>
+                <p>
+                  Para liberar a carga real, vamos criar uma rota protegida que usa a chave segura apenas no servidor.
+                  A chave de serviço nunca deve ir para o navegador.
+                </p>
+              </div>
+              <div className="load-checklist">
+                <div><CheckCircle2 aria-hidden="true" /><span>Leitura do arquivo antes da gravação</span></div>
+                <div><CheckCircle2 aria-hidden="true" /><span>Extrato de validação por mês, grupo e classificação</span></div>
+                <div><CheckCircle2 aria-hidden="true" /><span>Alertas contra comportamento histórico fora do padrão</span></div>
+                <div><CheckCircle2 aria-hidden="true" /><span>Botão final de aprovação somente após conferência</span></div>
+              </div>
+            </section>
           </div>
         )}
 

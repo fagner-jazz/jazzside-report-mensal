@@ -5,6 +5,9 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  DASHBOARD_ADMIN_PASSWORD?: string;
+  DASHBOARD_AUTH_SECRET?: string;
+  DASHBOARD_VIEWER_PASSWORD?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -28,6 +31,11 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    (
+      globalThis as typeof globalThis & {
+        __LATAM_DASHBOARD_ENV?: Partial<Env>;
+      }
+    ).__LATAM_DASHBOARD_ENV = env;
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

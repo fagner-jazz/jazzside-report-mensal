@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -13,6 +14,8 @@ import {
   Filter,
   Layers3,
   LayoutDashboard,
+  LockKeyhole,
+  LogOut,
   MailCheck,
   MailSearch,
   MousePointerClick,
@@ -128,6 +131,11 @@ type CampaignSort =
   | "ctor"
   | "bounce_rate"
   | "optout_rate";
+type SessionRole = "viewer" | "admin";
+type AuthState =
+  | { status: "checking"; role: null }
+  | { status: "anonymous"; role: null }
+  | { status: "authenticated"; role: SessionRole };
 
 const EMPTY: Metrics = {
   communications: 0,
@@ -1078,7 +1086,85 @@ function VerticalCompare({
   );
 }
 
+function LoginScreen({ onAuthenticated }: { onAuthenticated: (role: SessionRole) => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const payload = (await response.json()) as {
+        authenticated?: boolean;
+        role?: SessionRole;
+        error?: string;
+      };
+      if (!response.ok || !payload.authenticated || !payload.role) {
+        setError(payload.error || "Não foi possível validar o acesso.");
+        return;
+      }
+      onAuthenticated(payload.role);
+    } catch {
+      setError("Não foi possível conectar ao serviço de login.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <section className="login-card">
+        <div className="login-brand">
+          <div className="brand-mark">
+            <svg viewBox="0 0 44 38" aria-hidden="true">
+              <path d="M3 18 40 3 28 35l-7-10-9 5 3-10-12-2Z" />
+              <path d="m15 20 25-17" />
+            </svg>
+          </div>
+          <div>
+            <strong>COMUNICAÇÃO LATAM</strong>
+            <span>Email Marketing Performance</span>
+          </div>
+        </div>
+        <div className="login-lock">
+          <LockKeyhole aria-hidden="true" />
+        </div>
+        <h1>Acesso ao dashboard</h1>
+        <p>Digite a senha para consultar os indicadores oficiais de Email Marketing.</p>
+        <form onSubmit={handleSubmit}>
+          <label>
+            <span>Senha de acesso</span>
+            <input
+              autoFocus
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Digite sua senha"
+              type="password"
+            />
+          </label>
+          {error && <small className="login-error">{error}</small>}
+          <button type="submit" disabled={submitting || !password.trim()}>
+            {submitting ? "Validando..." : "Entrar"}
+          </button>
+        </form>
+        <small className="login-note">
+          A área de carga é restrita ao administrador. Visitantes acessam apenas leitura e exportações.
+        </small>
+      </section>
+    </main>
+  );
+}
+
 function App() {
+  const [auth, setAuth] = useState<AuthState>({ status: "checking", role: null });
   const [tab, setTab] = useState<Tab>("overview");
   const [rows, setRows] = useState<RawRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1105,6 +1191,30 @@ function App() {
   const [classificationSelected, setClassificationSelected] = useState("");
 
   useEffect(() => {
+    async function loadSession() {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        const payload = (await response.json()) as {
+          authenticated?: boolean;
+          role?: SessionRole | null;
+        };
+        if (payload.authenticated && payload.role) {
+          setAuth({ status: "authenticated", role: payload.role });
+        } else {
+          setAuth({ status: "anonymous", role: null });
+          setLoading(false);
+        }
+      } catch {
+        setAuth({ status: "anonymous", role: null });
+        setLoading(false);
+      }
+    }
+    loadSession();
+  }, []);
+
+  useEffect(() => {
+    if (auth.status !== "authenticated") return;
+    setLoading(true);
     async function loadData() {
       try {
         const endpoint =
@@ -1170,7 +1280,13 @@ function App() {
       }
     }
     loadData();
-  }, []);
+  }, [auth.status]);
+
+  useEffect(() => {
+    if (auth.status === "authenticated" && auth.role !== "admin" && tab === "load") {
+      setTab("overview");
+    }
+  }, [auth, tab]);
 
   const months = useMemo(
     () => Array.from(new Set(rows.map((row) => row.month_key))).sort(),
@@ -1258,6 +1374,27 @@ function App() {
     return inverse ? (above ? "negative" : "positive") : above ? "positive" : "negative";
   };
 
+  if (auth.status === "checking") {
+    return (
+      <main className="state-screen">
+        <div className="loader" />
+        <h1>Validando acesso</h1>
+        <p>Conferindo sua sessão antes de carregar o dashboard.</p>
+      </main>
+    );
+  }
+
+  if (auth.status === "anonymous") {
+    return (
+      <LoginScreen
+        onAuthenticated={(role) => {
+          setAuth({ status: "authenticated", role });
+          setLoading(true);
+        }}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <main className="state-screen">
@@ -1278,6 +1415,16 @@ function App() {
       </main>
     );
   }
+
+  const isAdmin = auth.role === "admin";
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    setAuth({ status: "anonymous", role: null });
+    setRows([]);
+    setHighlights([]);
+    setCampaignDetails([]);
+    setTab("overview");
+  };
 
   const kpis = buildMonthlyKpis(current, previous);
   const summaryKpis = buildMonthlyKpis(summaryTotal, summaryPrevious);
@@ -1694,9 +1841,11 @@ function App() {
           <button className={tab === "semester" ? "active" : ""} onClick={() => setTab("semester")}>
             <NavIcon name="semester" /> 1º semestre
           </button>
-          <button className={tab === "load" ? "active" : ""} onClick={() => setTab("load")}>
-            <NavIcon name="load" /> Carga
-          </button>
+          {isAdmin && (
+            <button className={tab === "load" ? "active" : ""} onClick={() => setTab("load")}>
+              <NavIcon name="load" /> Carga
+            </button>
+          )}
           <button className={tab === "insights" ? "active" : ""} onClick={() => {
             setComparisonSegment("ALL");
             setTab("insights");
@@ -1706,7 +1855,13 @@ function App() {
         </nav>
         <div className="sidebar-note">
           <span className="status-dot" />
-          <div><strong>Base oficial conectada</strong><small>LATAMERS excluído da apresentação</small></div>
+          <div>
+            <strong>{isAdmin ? "Acesso admin" : "Acesso leitura"}</strong>
+            <small>{isAdmin ? "Carga visível apenas para você" : "Dashboard e exportações liberados"}</small>
+            <button type="button" className="logout-button" onClick={handleLogout}>
+              <LogOut aria-hidden="true" /> Sair
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -2691,7 +2846,7 @@ function App() {
           </div>
         )}
 
-        {tab === "load" && (
+        {isAdmin && tab === "load" && (
           <div className="load-view">
             <section className="load-hero panel">
               <div>

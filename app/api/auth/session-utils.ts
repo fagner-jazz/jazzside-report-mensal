@@ -1,15 +1,18 @@
-export type SessionRole = "viewer" | "admin";
+import { env as cloudflareEnv } from "cloudflare:workers";
+
+export type SessionRole = "client" | "team" | "admin";
 
 export const SESSION_COOKIE = "latam_dashboard_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
 function envValue(key: string) {
+  const runtimeEnv = cloudflareEnv as Record<string, string | undefined>;
   const workerEnv = (
     globalThis as typeof globalThis & {
       __LATAM_DASHBOARD_ENV?: Record<string, string | undefined>;
     }
   ).__LATAM_DASHBOARD_ENV;
-  return workerEnv?.[key] || process.env[key] || "";
+  return runtimeEnv[key] || workerEnv?.[key] || process.env[key] || "";
 }
 
 function getSecret() {
@@ -19,9 +22,13 @@ function getSecret() {
 export function authIsConfigured() {
   return Boolean(
     getSecret() &&
-      envValue("DASHBOARD_VIEWER_PASSWORD") &&
+      (envValue("DASHBOARD_CLIENT_PASSWORD") || envValue("DASHBOARD_VIEWER_PASSWORD")) &&
       envValue("DASHBOARD_ADMIN_PASSWORD"),
   );
+}
+
+function configuredUsername(key: string, fallback: string) {
+  return (envValue(key) || fallback).trim().toLocaleLowerCase("pt-BR");
 }
 
 function base64UrlEncode(bytes: Uint8Array) {
@@ -64,12 +71,32 @@ function timingSafeEqual(a: string, b: string) {
   return diff === 0;
 }
 
-export function roleForPassword(password: string): SessionRole | null {
-  if (timingSafeEqual(password, envValue("DASHBOARD_ADMIN_PASSWORD"))) {
+export function roleForCredentials(username: string, password: string): SessionRole | null {
+  const normalizedUsername = username.trim().toLocaleLowerCase("pt-BR");
+  const adminPassword = envValue("DASHBOARD_ADMIN_PASSWORD");
+  const teamPassword = envValue("DASHBOARD_TEAM_PASSWORD");
+  const clientPassword = envValue("DASHBOARD_CLIENT_PASSWORD") || envValue("DASHBOARD_VIEWER_PASSWORD");
+
+  if (
+    normalizedUsername === configuredUsername("DASHBOARD_ADMIN_USERNAME", "admin") &&
+    adminPassword &&
+    timingSafeEqual(password, adminPassword)
+  ) {
     return "admin";
   }
-  if (timingSafeEqual(password, envValue("DASHBOARD_VIEWER_PASSWORD"))) {
-    return "viewer";
+  if (
+    normalizedUsername === configuredUsername("DASHBOARD_TEAM_USERNAME", "equipe") &&
+    teamPassword &&
+    timingSafeEqual(password, teamPassword)
+  ) {
+    return "team";
+  }
+  if (
+    normalizedUsername === configuredUsername("DASHBOARD_CLIENT_USERNAME", "latam") &&
+    clientPassword &&
+    timingSafeEqual(password, clientPassword)
+  ) {
+    return "client";
   }
   return null;
 }
@@ -105,7 +132,10 @@ export async function readSessionRole(request: Request): Promise<SessionRole | n
     const decoded = new TextDecoder().decode(base64UrlDecode(payload));
     const session = JSON.parse(decoded) as { role?: string; expiresAt?: number };
     if (session.expiresAt && session.expiresAt < Math.floor(Date.now() / 1000)) return null;
-    return session.role === "admin" || session.role === "viewer" ? session.role : null;
+    if (session.role === "viewer") return "client";
+    return session.role === "admin" || session.role === "team" || session.role === "client"
+      ? session.role
+      : null;
   } catch {
     return null;
   }

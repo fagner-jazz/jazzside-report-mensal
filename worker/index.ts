@@ -6,7 +6,12 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   DASHBOARD_ADMIN_PASSWORD?: string;
+  DASHBOARD_ADMIN_USERNAME?: string;
   DASHBOARD_AUTH_SECRET?: string;
+  DASHBOARD_CLIENT_PASSWORD?: string;
+  DASHBOARD_CLIENT_USERNAME?: string;
+  DASHBOARD_TEAM_PASSWORD?: string;
+  DASHBOARD_TEAM_USERNAME?: string;
   DASHBOARD_VIEWER_PASSWORD?: string;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -48,7 +53,26 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    const response = await handler.fetch(request, env, ctx);
+    const contentType = response.headers.get("content-type") ?? "";
+
+    // The HTML shell points to content-hashed assets. It must always be
+    // revalidated so an open dashboard does not remain attached to an older
+    // deployment, while the versioned JS/CSS files keep their immutable cache.
+    if (contentType.includes("text/html")) {
+      const headers = new Headers(response.headers);
+      headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      headers.set("Pragma", "no-cache");
+      headers.set("Expires", "0");
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+
+    return response;
   },
 };
 

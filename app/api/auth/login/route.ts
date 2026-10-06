@@ -1,7 +1,7 @@
 import {
   authIsConfigured,
   createSessionCookie,
-  roleForPassword,
+  roleForCredentials,
 } from "../session-utils";
 
 export async function POST(request: Request) {
@@ -12,12 +12,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const payload = (await request.json().catch(() => ({}))) as { password?: string };
+  const payload = (await request.json().catch(() => ({}))) as { username?: string; password?: string };
+  const username = payload.username || "";
   const password = payload.password || "";
-  const role = roleForPassword(password);
+  const role = roleForCredentials(username, password);
 
   if (!role) {
-    return Response.json({ error: "Senha inválida." }, { status: 401 });
+    return Response.json({ error: "Usuário ou senha inválidos." }, { status: 401 });
   }
 
   return Response.json(

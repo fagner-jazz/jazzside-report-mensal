@@ -1,4 +1,42 @@
-# Report Mensal Local
+# JazzSide — Report Mensal e Dashboard LATAM
+
+O dashboard publicado na Cloudflare tem seu código em `dashboard-email-marketing/`.
+Os scripts Python e as validações na raiz são materiais históricos do processamento mensal.
+
+## Dashboard atual
+
+- Produção: https://dashboard-latam.jazzside.workers.dev
+- Worker: `dashboard-latam`
+- Supabase: projeto `fidfdgnnoqamhftczcer`.
+- Stack: React, TypeScript, vinext/Vite e Cloudflare Workers.
+- Dados atuais verificados em 06/10/2026: janeiro a setembro de 2026.
+
+Para trabalhar em outro PC, clone este repositório e execute dentro da pasta do dashboard:
+
+```powershell
+cd dashboard-email-marketing
+npm ci
+npm run build
+```
+
+Use Node.js 22.13 ou superior. O build do código de referência passou no PC de migração.
+O histórico Git do dashboard foi preservado junto ao histórico existente deste repositório.
+
+A prévia local autenticada precisa de credenciais de desenvolvimento próprias. Os segredos
+de produção continuam na Cloudflare e os dados continuam no Supabase. Arquivos `.env*`
+e `.dev.vars*` com credenciais devem permanecer fora do Git.
+
+Antes de publicar, confira a conta Cloudflare e o destino `dashboard-latam`.
+O build atual gera o nome `latam-email-marketing-dashboard`; para usar o Worker existente,
+é necessário fornecer explicitamente `--name dashboard-latam` ao comando de publicação.
+A migração do código para este repositório não publica o Worker nem carrega dados no banco.
+
+Consulte também `dashboard-email-marketing/MIGRACAO-PC.md` para o estado do backup e dos testes antigos.
+
+## Scripts históricos
+
+As instruções abaixo documentam o projeto Python original; seus caminhos do PC antigo
+devem ser adaptados antes de executar qualquer script de processamento ou carga.
 
 Projeto local para processar e enviar dados de marketing para o Supabase.
 

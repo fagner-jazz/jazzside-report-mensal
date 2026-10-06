@@ -2776,6 +2776,8 @@ footer p { margin: 4px 0; color: #969bab; font-size: 8px; line-height: 1.5; }
 /* Keep the screen layout independent of browser zoom and metric count. */
 .dashboard { container: dashboard / inline-size; }
 .sidebar { height: 100dvh; overflow-y: auto; }
+.sidebar, .sidebar nav { scrollbar-width: none; }
+.sidebar::-webkit-scrollbar, .sidebar nav::-webkit-scrollbar { display: none; }
 .brand-partnership-logo { max-width: 100%; height: auto; }
 .topbar { flex-wrap: wrap; }
 .topbar > div { min-width: 0; }

@@ -2811,9 +2811,6 @@ footer p { margin: 4px 0; color: #969bab; font-size: 8px; line-height: 1.5; }
   .creative-selected-card, .creative-workspace, .creative-diagnosis-grid, .subcategory-compare-content { grid-template-columns: minmax(0, 1fr); }
   .subcategory-compare-controls { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 }
-@container dashboard (min-width: 960px) {
-  .kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
 @media (min-width: 981px) {
   .sidebar { width: 208px; padding: 20px 14px 14px; }
   .sidebar nav button { font-size: 14px; padding: 10px; }
@@ -2821,6 +2818,12 @@ footer p { margin: 4px 0; color: #969bab; font-size: 8px; line-height: 1.5; }
   .dashboard { margin-left: 208px; padding: 28px clamp(20px, 2vw, 32px) 20px; }
   h1 { font-size: clamp(28px, 2.3vw, 38px); }
   .topbar p { font-size: 14px; }
+  .kpi-grid { grid-template-columns: repeat(10, minmax(86px, 1fr)); overflow-x: auto; padding-bottom: 4px; gap: 8px; }
+  .kpi-card { grid-template-columns: minmax(0, 1fr); min-height: 168px; padding: 12px 10px; gap: 8px; }
+  .kpi-card .kpi-icon { width: 28px; height: 28px; }
+  .kpi-copy > span { min-height: 32px; font-size: clamp(10px, .8cqi, 12px); line-height: 1.35; overflow-wrap: normal; }
+  .kpi-copy > strong { font-size: clamp(14px, 1.35cqi, 24px); letter-spacing: -.045em; }
+  .kpi-copy > small { font-size: 10px; }
 }
 @media (max-width: 680px) {
   .sidebar { height: auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px 14px; overflow: visible; }
